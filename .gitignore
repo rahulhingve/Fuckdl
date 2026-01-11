@@ -52,9 +52,10 @@ downloads/
 
 # Sensitive files
 fuckdl/cookies/**/*.txt
-fuckdl/devices/**/*.dat
-fuckdl/devices/**/*.wvd
-fuckdl/devices/**/*.prd
+# Device files - uncommented to allow uploading to repo
+# fuckdl/devices/**/*.dat
+# fuckdl/devices/**/*.wvd
+# fuckdl/devices/**/*.prd
 fuckdl/config/fuckdl.yml
 
 # Build files
