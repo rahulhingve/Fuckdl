@@ -1,9 +1,0 @@
-2026-01-11 18:20:28 [I] vt : fuckdl - Playready and Widevine DRM downloader and decrypter
-2026-01-11 18:20:28 [I] vt : [Root Config]     : F:\final test\fuckdl\fuckdl.yml
-2026-01-11 18:20:28 [I] vt : [Service Configs] : F:\final test\fuckdl\services
-2026-01-11 18:20:28 [I] vt : [Cookies]         : F:\final test\fuckdl\cookies
-2026-01-11 18:20:28 [I] vt : [CDM Devices]     : F:\final test\fuckdl\devices
-2026-01-11 18:20:28 [I] vt : [Cache]           : F:\final test\fuckdl\cache
-2026-01-11 18:20:28 [I] vt : [Logs]            : F:\final test\fuckdl\logs
-2026-01-11 18:20:28 [I] vt : [Temp Files]      : F:\final test\temp
-2026-01-11 18:20:28 [I] vt : [Downloads]       : F:\final test\downloads
