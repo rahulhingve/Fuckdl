@@ -1,3 +1,3 @@
 @echo off
-poetry run fuckdl dl -sl en -al en rakutentv -m https://www.rakuten.tv/uk/movies/resident-evil-afterlife
+poetry run fuckdl dl rakutentv -m https://www.rakuten.tv/es/movies/el-silencio-de-los-espias
 pause

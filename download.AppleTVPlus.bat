@@ -1,4 +1,3 @@
 @echo off
-poetry run fuckdl dl -al en  AppleTVPlus https://tv.apple.com/us/movie/fountain-of-youth/umc.cmc.z5xrwbjg3gergiowhrzg61tq
+poetry run fuckdl dl -q 1920 -v H265 -r SDR -al en -w S01E1 AppleTVPlus umc.cmc.6wsi780sz5tdbqcf11k76mkp7
 pause
-

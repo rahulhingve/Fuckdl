@@ -1,0 +1,43 @@
+# FOD (Fuji TV On Demand)
+# DO NOT EDIT unless you're a developer
+
+# JWT Secret for token generation
+jwt_secret: "II1pq1aFylVZNASr0mea7zXFOhrAPZURZp6Ru3LuqqsUVZ4lyJj2R4kufetQN9mx"
+
+# Forwarded IP for Japan geofencing (use a reliable Japan IP)
+forwarded_ip: "146.70.205.94"
+
+# API Endpoints
+endpoints:
+  # Title information endpoint
+  title: "https://i.fod.fujitv.co.jp/apps/api/c/v2/lineup/detail"
+  
+  # Widevine/PlayReady license endpoint
+  license: "https://cenc.webstream.ne.jp/drmapi/wv/fujitv"
+  
+  # Manifest endpoints
+  manifest_web: "https://fod.fujitv.co.jp/apps/api/1/auth/contents/web"
+  manifest_tv: "https://fod-sp.fujitv.co.jp/apps/api/m/v2/auth/contents/tv_common/"
+  
+  # Authentication endpoints
+  login_app: "https://id.fod.fujitv.co.jp/api/member/v2/login_app"
+  check_auth_code: "https://id.fod.fujitv.co.jp/api/member/CheckAuthCodeApp"
+  check_token: "https://fod-sp.fujitv.co.jp/apps/api/login/check_token/"
+  
+  # User status endpoint
+  user_status: "https://fod-sp.fujitv.co.jp/apps/api/user/status/"
+
+# Common headers for TV client
+headers:
+  user-agent: "Dalvik/2.1.0 (Linux; U; Android 16; AOSP TV on x86 Build/BT2A.250323.001.A4)"
+  accept: "application/json"
+  accept-charset: "UTF-8"
+  accept-encoding: "gzip"
+  connection: "Keep-Alive"
+  content-type: "application/json"
+
+# Device parameters for authentication
+device:
+  type: "androidTV"
+  name: "AOSP TV on x86"
+  model: "AOSP TV on x86"

@@ -1,3 +1,3 @@
 @echo off
-poetry run fuckdl dl YouTube https://www.youtube.com/show/SCguuq8upmH1TmPhSI3nqYqg
+poetry run fuckdl dl -al all --keys --no-cache YT https://www.youtube.com/watch?v=APh1Ke9pV58&pp=sAQB
 pause

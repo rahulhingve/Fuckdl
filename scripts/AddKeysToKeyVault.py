@@ -14,7 +14,7 @@ Optionally you can also put `:<title here>` at the end (after `KEY`).
 
 parser = argparse.ArgumentParser(
     "Key Vault DB batch adder/updater",
-    description="Simple script to add or update key information to a fuckdl key vault db"
+    description="Simple script to add or update key information to a key vault db"
 )
 parser.add_argument(
     "-t", "--table",

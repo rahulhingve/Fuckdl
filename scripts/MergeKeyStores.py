@@ -8,7 +8,7 @@ from fuckdl.utils.AtomicSQL import AtomicSQL
 
 parser = argparse.ArgumentParser(
     "Key Store DB merger",
-    description="Simple script to merge fuckdl key store db's into one"
+    description="Simple script to merge key store db's into one"
 )
 parser.add_argument(
     "-i", "--input",

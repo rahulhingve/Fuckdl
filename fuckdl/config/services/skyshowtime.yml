@@ -4,12 +4,13 @@ endpoints:
   me: 'https://ovp.skyshowtime.com/auth/users/me'
   node: 'https://atom.skyshowtime.com/adapter-calypso/v3/query/node/'
   vod: 'https://ovp.skyshowtime.com/video/playouts/vod'
+  personas: 'https://web.clients.skyshowtime.com/bff/personas/v2'
 
 client:
-  version: '4.1.10'
-  config_version: '4.1.11'
-  territory: 'RO'
-  activeterritory: 'RO'
+  version: '6.11.21-gsp'
+  config_version: '6.11.21-gsp'
+  territory: 'PL'
+  activeterritory: 'PL'
   language: 'en-US'
   provider: 'SKYSHOWTIME'
   proposition: 'SKYSHOWTIME'

@@ -1,4 +1,3 @@
 @echo off
-poetry run fuckdl dl -q 1080 -al en Peacock https://www.peacocktv.com/watch/asset/movies/black-bag/d2bc869a-ca30-343f-878f-7eaa7c09902b
+poetry run fuckdl dl -q 1080 -al es-419,en -sl es-419,en --keys --no-cache PCOK https://www.peacocktv.com/watch/asset/movies/drama/eternal-sunshine-of-the-spotless-mind/788c8e18-2d35-355e-b9c5-f25133c76ae1
 pause
-

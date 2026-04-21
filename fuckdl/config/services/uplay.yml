@@ -1,0 +1,13 @@
+auth:
+  refresh_token: APZUo0SoMbTShoNwwaX1t5ofp-DBkuyxMmoNrEBzhpDuXjrMaJVDxfq1y2x3t9fRDk-h2xDsEXeV838Si4SmN2isXdhb6mU-OdVevdkjYrZqW3jupHdDz4EBPpop4xyVrUVCLsUwb13OtevsXigtZq8Y6BHVoJuBlm9F9W5g0dokG0oQob-drZClSQdcsAbQ3OoLzHwrUG0004D6Hk2WQqgJgE8Ty75oKw
+  token_key: AIzaSyA_N0Eq94sJVGfaEDLBH2vlCxaQ7kpD_gk
+endpoints:
+  license_url: https://vdrm.mobiotics.com/prod/proxy/v1/license/widevine
+  login: https://vsms.mobiotics.com/prodv3/subscriberv2/v1/login
+  media: https://cdn.jwplayer.com/v2/media/{}
+  metadata: https://vcms.mobiotics.com/prodv3/subscriber/v1/content/{}
+  movie: https://api.ultraplay.in/api/product/{}/
+  playback: https://vcms.mobiotics.com/prodv3/subscriber/v1/content/package/{}
+  refresh_token: https://vsms.mobiotics.com/prodv3/subscriberv2/v1/refreshtoken
+  stream: https://vcms.mobiotics.com/prodv3/subscriber/v1/stream/content/{}
+  token: https://securetoken.googleapis.com/v1/token

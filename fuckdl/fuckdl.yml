@@ -6,44 +6,58 @@ arguments: {}
 
 aria2c:
   file_allocation: 'prealloc'
-  
 
 cdm:
-  default: 'xiaomi_mi_a1_15.0.0_60ceee88_8159_l3'
+  default: '' 
+  ClaroVideo: ''
   DisneyPlus: ''
-  Netflix: ''
-  Amazon: ''
-  Max: ''
+  Amazon: 'lg_electronics_inc_lg_webos_tv_msd96alvx_sl3000'
+  HBOMax: ''
   AppleTVPlus: ''
+  HULUJP: '' 
+  iTunes: ''
   Hulu: ''
-
-cdm_api:
-  - name: ''
-    host: ''
-    key: ''
-    device: ''
-    type: ''
-    system_id: 
-    security_level:
+  Mubi: ''
+  Crunchyroll: ''
+  ParamountPlus: ''
+  VIX: ''
+  Peacock: ''
+  Crave: ''
+  CanalPlus: ''
+  Fandango: ''
+  SkyShowtime: ''
+  RakutenTV: ''
+  Meliplay: ''
+  YouTube: ''
+  UniversalPlus: ''
+  Skyshowtime: ''
 
 credentials:
-  HuluJP: 'email:password'
+  Fandango: 'email:password'
+  ClaroVideo: 'email:password'
   CTV: 'email:password'
-  Netflix: 'email:password'
+  Crave: 'email:password'
+  ParamountPlus: 'email:password'
   DisneyPlus: 'email:password'
-  All4: 'email:password'
-  Stan: 'email:password'
-  Peacock: 'email:password'
+  HULUJP: ''email:password''
+  UniversCine: 'email:password'
+  Hidive: 'email:password'
+  Netflix: 'email:password'
+  Crunchyroll: 'email:password'
+  Kocowa: 'email:password'
+  Mubi: 'email:password' 
+  Hidive: 'email:password'
+  CTV: 'email:password'
+  RakutenTV: 'email:password'
+  TF1: 'email:password'
+  FujiTV: 'email:password'
 
 directories:
   temp: ''
   downloads: ''
 
 headers:
-  User-Agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36'
-
-#'Crunchyroll/ANDROIDTV/3.45.0_22272'
-#'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36'
+  User-Agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36'
 
 key_vaults:
   - type: 'local'
@@ -63,14 +77,19 @@ output_template:
 profiles:
   default: 'default'
 
-default_proxy_service: 'nordvpn' # Options: 'surfshark', 'nordvpn' 'null'
+default_proxy_service: 'default' #surfshark, #nordvpn, #windscribe, #default
 
 proxies: {}
 
-nordvpn:
-    username: ''
-    password: ''
-
-surfshark:
-    username: ''
-    password: ''
+proxy_providers:
+  nordvpn:
+    username: ""
+    password: ""
+  
+  surfshark:
+    username: ""
+    password: ""
+  
+  windscribe:
+    username: ""
+    password: ""

@@ -1,3 +1,3 @@
 @echo off
-poetry run fuckdl dl -al en -q 1080 -w s01 DSNP https://www.disneyplus.com/browse/entity-de06d518-0f2d-4927-b8ad-d80d2ea3db99
+poetry run fuckdl dl -q 1080 --no-cache --keys DSNP entity-85e7a914-c8e6-41db-95df-c740dc2cf1b7
 pause

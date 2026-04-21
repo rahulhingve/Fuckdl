@@ -1,3 +1,5 @@
+Telegram: @barbiedrm
+
 1. Install python 3.8.xx - 3.13.xx, be sure to add python to PATH while installing it.
 
 2. Install Microsoft Visual C++ Redistributable.
@@ -12,19 +14,19 @@ https://addons.mozilla.org/en-US/firefox/addon/cookies-txt-one-click/
 
 and go to max.com and download the cookies, rename the file to default.txt and put it in
 
-fuckdl\Cookies\Max
+Fuckdl\Cookies\Max
 
 For Amazon go to primevideo.com or amazon.com and download the cookies, rename the file to default.txt and put it in
 
-fuckdl\Cookies\Amazon
+Fuckdl\Cookies\Amazon
 
 For AppleTVPlus go to tv.apple.com and download the cookies, rename the file to default.txt and put it in
 
-fuckdl\Cookies\AppleTVPlus
+Fuckdl\Cookies\AppleTVPlus
 
 For iTunes go to tv.apple.com or music.apple.com and download the cookies, rename the file to default.txt and put it in
 
-fuckdl\Cookies\iTunes
+Fuckdl\Cookies\iTunes
 
 5. For the services that need credentials like DisneyPlus, Crunchyroll, Crave, Videoland, ParamountPlus, All4, RakutenTV and BritBox add the credentials in \fuckdl\fuckdl.yml, edit the file with notepad++.
 
@@ -58,4 +60,4 @@ instead of Amazon add the service name
 
 the extra options will be added after the service name
 
-7. Make a folder for the SL2000 or SL3000 in \fuckdl\devices and add in it bgroupcert.dat and zgpriv.dat and edit fuckdl.yml for adding the name of the folder, fuckdl will create prd file and reprovisioning it every an hour.
+7. Make a folder for the SL2000 or SL3000 in \fuckdl\devices and add in it bgroupcert.dat and zgpriv.dat and edit fuckdl.yml for adding the name of the folder. Fuckdl will create the PRD file and reprovision it every hour.

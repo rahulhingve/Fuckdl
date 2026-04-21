@@ -1,5 +1,3 @@
 @echo off
-poetry run fuckdl dl -al en -w s01 Hulu https://www.hulu.com/series/9efa2380-4a5f-4b11-b84c-afb61bb7788b
-pause
-poetry run fuckdl dl -al en -w s04e37 Hulu https://www.hulu.com/series/9efa2380-4a5f-4b11-b84c-afb61bb7788b
+poetry run fuckdl dl -al es-419,en -q 1080 Hulu https://www.hulu.com/movie/dda7510f-0b80-422c-94d8-50a12502427e
 pause

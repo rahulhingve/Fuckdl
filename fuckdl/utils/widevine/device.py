@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import base64
 import json
 import os
@@ -20,8 +21,8 @@ from Cryptodome.Signature import pss
 from Cryptodome.Util import Padding as CPadding
 from google.protobuf.message import DecodeError
 
-from fuckdl.utils.widevine.key import Key
-from fuckdl.utils.widevine.protos import widevine_pb2 as widevine
+from .protos import widevine_pb2 as widevine
+from .key import Key
 from fuckdl.vendor.pymp4.parser import Box
 
 try:
@@ -48,22 +49,11 @@ class BaseDevice(ABC):
 
     @abstractmethod
     def set_service_certificate(self, session, certificate):
-        """
-        Applies a service certificate to the device.
-        This would be used for devices that wish to use Privacy Mode.
-        It's akin to SSL/TLS in that it adds another layer of protection on the data itself from MiTM attacks.
-        Chrome device_type keys beyond 906 require a Verified Media Path (VMP), which in turn requires a service
-        certificate to be set (Privacy Mode).
-        """
+        """Applies a service certificate to the device."""
 
     @abstractmethod
-    def get_license_challenge(self, session):
-        """
-        Get a license challenge (SignedLicenseRequest) to send to a service API.
-
-        Returns:
-            Base64-encoded SignedLicenseRequest (as bytes).
-        """
+    def get_license_challenge(self, session, service_name=None):
+        """Get a license challenge (SignedLicenseRequest) to send to a service API."""
 
     @abstractmethod
     def parse_license(self, session, license_res):
@@ -90,30 +80,13 @@ class LocalDevice(BaseDevice):
         "vmp_len" / Optional(Int16ub),
         "vmp" / If(this.vmp_len, Optional(Bytes(this.vmp_len)))
     )
-    WidevineDeviceStructVersion = 1  # latest version supported
+    WidevineDeviceStructVersion = 1
 
     def __init__(self, *_, type, security_level, flags, private_key, client_id, vmp=None, **__):
-        """
-        This is the device key data that is needed for the CDM (Content Decryption Module).
-
-        Parameters:
-            type: Device Type
-            security_level: Security level from 1 (highest ranking) to 3 (lowest ranking)
-            flags: Extra flags
-            private_key: Device Private Key
-            client_id: Device Client Identification Blob
-            vmp: Verified Media Path (VMP) File Hashes Blob
-
-        Flags:
-            send_key_control_nonce: Setting this to `true` will set a random int between 1 and 2^31 under
-                `KeyControlNonce` on the License Request Challenge.
-        """
-        # *_,*__ is to ignore unwanted args, like signature and version from the struct.
-        # `type` param is shadowing a built-in (not great) but required to match with the struct
         self.type = self.Types[type] if isinstance(type, str) else type
         self.security_level = security_level
         self.flags = flags
-        self.api_vault=False
+        self.api_vault = False
         self.private_key = RSA.importKey(private_key) if private_key else None
         self.client_id = widevine.ClientIdentification()
         try:
@@ -131,22 +104,66 @@ class LocalDevice(BaseDevice):
 
         self.sessions = {}
 
-        # shorthands
-        self.system_id = None
+        # CORRECCIÃ“N: Usar _system_id (atributo privado) en lugar de system_id
+        self._system_id = None
+        
+        # Intentar extraer system_id durante la inicializaciÃ³n
+        try:
+            if self.client_id and self.client_id.Token:
+                cert = widevine.DeviceCertificate()
+                cert.ParseFromString(self.client_id.Token)
+                if cert.SystemId:
+                    self._system_id = cert.SystemId
+        except:
+            pass
+        
+        # TambiÃ©n intentar de ClientInfo
+        if not self._system_id:
+            for info in self.client_id.ClientInfo:
+                if info.Name.lower() in ["system_id", "systemid"]:
+                    try:
+                        self._system_id = int(info.Value)
+                    except:
+                        self._system_id = info.Value
+                    break
+
+    @property
+    def system_id(self):
+        """Obtiene el System ID del dispositivo"""
+        if self._system_id:
+            return self._system_id
+        
+        # Intentar extraer del client_id nuevamente
         if self.client_id:
-            # noinspection PyProtectedMember
-            self.system_id = self.client_id.Token._DeviceCertificate.SystemId
+            # MÃ©todo 1: Del Token (DeviceCertificate)
+            if self.client_id.Token:
+                try:
+                    cert = widevine.DeviceCertificate()
+                    cert.ParseFromString(self.client_id.Token)
+                    if cert.SystemId:
+                        self._system_id = cert.SystemId
+                        return self._system_id
+                except:
+                    pass
+            
+            # MÃ©todo 2: De ClientInfo
+            for info in self.client_id.ClientInfo:
+                if info.Name.lower() in ["system_id", "systemid", "device_id"]:
+                    try:
+                        self._system_id = int(info.Value)
+                    except:
+                        self._system_id = info.Value
+                    return self._system_id
+        
+        return None
 
     @classmethod
     def load(cls, uri, session=None):
         if isinstance(uri, bytes):
-            # direct data
             return cls(**cls.WidevineDeviceStruct.parse(uri))
         elif validators.url(uri):
-            # remote url
             return cls(**cls.WidevineDeviceStruct.parse((session or requests).get(uri).content))
         else:
-            # local file
             with open(uri, "rb") as fd:
                 return cls(**cls.WidevineDeviceStruct.parse_stream(fd))
 
@@ -202,7 +219,7 @@ class LocalDevice(BaseDevice):
 
     def set_service_certificate(self, session, certificate):
         if isinstance(certificate, str):
-            certificate = base64.b64decode(certificate)  # assuming base64
+            certificate = base64.b64decode(certificate)
 
         signed_message = widevine.SignedMessage()
         try:
@@ -221,27 +238,27 @@ class LocalDevice(BaseDevice):
 
         return True
 
-    def get_license_challenge(self, session, service_name):
+    def get_license_challenge(self, session, service_name=None):
         if not self.client_id:
             raise ValueError("No client identification blob is available for this device.")
         if not self.private_key and not cdmapi_supported:
             raise ValueError("No device private key is available for this device and cdmapi is not installed.")
 
-        license_request = None
-
+        license_request = widevine.SignedLicenseRequest()
+        license_request.Type = widevine.SignedLicenseRequest.MessageType.Value("LICENSE_REQUEST")
+        
+        # Configurar ContentId
         if session.raw:
-            # raw pssh will be treated as bytes and not parsed
-            license_request = widevine.SignedLicenseRequestRaw()
-            license_request.Type = widevine.SignedLicenseRequestRaw.MessageType.Value("LICENSE_REQUEST")
-            license_request.Msg.ContentId.CencId.Pssh = session.cenc_header  # bytes, init_data
+            # raw pssh - asignar directamente como bytes
+            license_request.Msg.ContentId.CencId.Pssh.algorithm = widevine.WidevineCencHeader.Algorithm.AESCTR
+            license_request.Msg.ContentId.CencId.Pssh.key_id.append(session.cenc_header)
         else:
-            license_request = widevine.SignedLicenseRequest()
-            license_request.Type = widevine.SignedLicenseRequest.MessageType.Value("LICENSE_REQUEST")
-            license_request.Msg.ContentId.CencId.Pssh.CopyFrom(session.cenc_header)  # init_data
+            license_request.Msg.ContentId.CencId.Pssh.CopyFrom(session.cenc_header)
 
         license_type = "OFFLINE" if session.offline else "DEFAULT"
         license_request.Msg.ContentId.CencId.LicenseType = widevine.LicenseType.Value(license_type)
         license_request.Msg.ContentId.CencId.RequestId = session.session_id
+        
         license_request.Msg.Type = widevine.LicenseRequest.RequestType.Value("NEW")
         license_request.Msg.RequestTime = int(time.time())
         license_request.Msg.ProtocolVersion = widevine.ProtocolVersion.Value("VERSION_2_1")
@@ -256,7 +273,7 @@ class LocalDevice(BaseDevice):
             enc_client_id = widevine.EncryptedClientIdentification()
             if not session.signed_device_certificate:
                 raise ValueError("Missing signed_device_certificate")
-            enc_client_id.ServiceId = session.signed_device_certificate._DeviceCertificate.ServiceId.decode()
+            enc_client_id.ServiceId = session.signed_device_certificate._DeviceCertificate.ServiceId
             enc_client_id.ServiceCertificateSerialNumber = (
                 session.signed_device_certificate._DeviceCertificate.SerialNumber
             )
@@ -298,7 +315,7 @@ class LocalDevice(BaseDevice):
         try:
             signed_license.ParseFromString(license_res)
         except DecodeError:
-            raise ValueError(f"Failed to parse license_res {license_res!r} as SignedLicense")
+            raise ValueError(f"Failed to parse license_res as SignedLicense")
         session.signed_license = signed_license
 
         def get_auth_keys(*i, k, b):
@@ -316,6 +333,7 @@ class LocalDevice(BaseDevice):
             session.session_key = bytes.fromhex(cdmapi.decrypt(session.signed_license.SessionKey.hex()))
         else:
             session.session_key = PKCS1_OAEP.new(self.private_key).decrypt(session.signed_license.SessionKey)
+        
         session.derived_keys["enc"] = get_auth_keys(1, k=session.session_key, b=enc_key_base)
         session.derived_keys["auth_1"] = get_auth_keys(1, 2, k=session.session_key, b=auth_key_base)
         session.derived_keys["auth_2"] = get_auth_keys(3, 4, k=session.session_key, b=auth_key_base)
@@ -332,15 +350,21 @@ class LocalDevice(BaseDevice):
                 for (descriptor, value) in key._OperatorSessionKeyPermissions.ListFields():
                     if value == 1:
                         permissions.append(descriptor.name)
+            
+            # Desencriptar la key
+            decrypted_key = CPadding.unpad(
+                AES.new(session.derived_keys["enc"], AES.MODE_CBC, iv=key.Iv).decrypt(key.Key),
+                16
+            )
+            
             session.keys.append(Key(
                 kid=key.Id if key.Id else key_type.encode("utf-8"),
                 key_type=key_type,
-                key=CPadding.unpad(AES.new(session.derived_keys["enc"], AES.MODE_CBC, iv=key.Iv).decrypt(key.Key), 16),
+                key=decrypted_key,
                 permissions=permissions
             ))
 
         return True
-
 
 class RemoteDevice(BaseDevice):
     def __init__(self, *_, type, system_id, security_level, name, host, api_vault=False, key, device=None, **__):

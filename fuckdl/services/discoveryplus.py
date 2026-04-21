@@ -15,6 +15,12 @@ class DiscoveryPlus(BaseService):
     \b
     Authorization: Cookies
     Security: UHD@? FHD@L3
+
+    Added by @AnotherBigUserHere
+
+    Exclusive for Fuckdl
+
+    Copyright AnotherBigUserHere 2026
     """
 
     ALIASES = ["DSCP", "discoveryplus", "discovery+"]

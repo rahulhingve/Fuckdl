@@ -1,0 +1,19 @@
+api_key: AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w
+
+endpoints:
+  device_code: "https://oauth2.googleapis.com/device/code"
+  token: "https://oauth2.googleapis.com/token"
+  player: "https://youtubei.googleapis.com/youtubei/v1/player"
+  license: "https://youtubei.googleapis.com/youtubei/v1/player/get_drm_license"
+
+device:
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/61.0.3163.100 Safari/537.36"
+  vr:
+    user_agent: "com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12; en_US; Quest 3; Build/SQ3A.220605.009.A1; Cronet/132.0.6808.3)"
+    client_id: "652469312169-4lvs9bnhr9lpns9v451j5oivd81vjvu1"
+    client_secret: "3fTWrBJI5Uojm1TK7_iJCW5Z"
+
+context:
+  client:
+    clientName: 'ANDROID_VR'
+    clientVersion: '1.61.48'

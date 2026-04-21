@@ -1,0 +1,13 @@
+# Kocowa Plus service configuration
+device_type: browser
+user_agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36 Edg/142.0.0.0'
+
+# License endpoints
+license_widevine: https://cbsi.live.ott.irdeto.com/widevine/getlicense
+
+# Endpoints
+endpoints:
+  login: "https://prod-sgwv3.kocowa.com/api/v01/user/signin"
+  middleware_auth: "https://middleware.bcmw.kocowa.com/authenticate-user"
+  metadata: "https://prod-fms.kocowa.com/api/v01/fe/content/get?id={title_id}"
+  authorize: "https://middleware.bcmw.kocowa.com/api/playback/authorize/{episode_id}"

@@ -1,58 +1,14 @@
 import logging
 import os
 import sys
+import warnings
 from datetime import datetime
 
 import click
 import coloredlogs
 
-from fuckdl.config import directories, filenames  # isort: split
 from fuckdl.commands import dl
-
-# Try to import colorama for colored ASCII art
-try:
-    from colorama import Fore, Style, init
-    init(autoreset=True)
-    COLORAMA_AVAILABLE = True
-except ImportError:
-    COLORAMA_AVAILABLE = False
-
-
-def get_ascii_art():
-    """Generate ASCII art banner with red FuckDL text."""
-    # Bigger ASCII art for FuckDL
-    fuckdl_text = """
-  ______          _      _____  _      
- |  ____|        | |    |  __ \| |     
- | |__ _   _  ___| | __ | |  | | |     
- |  __| | | |/ __| |/ / | |  | | |     
- | |  | |_| | (__|   <  | |__| | |____ 
- |_|   \__,_|\___|_|\_\ |_____/|______|
-                                       
-"""
-    
-    banner = """
-================================================================================
-                                                                              
-"""
-    
-    # Add red colored FuckDL text if colorama is available
-    if COLORAMA_AVAILABLE:
-        banner += Fore.RED + fuckdl_text + Style.RESET_ALL
-    else:
-        banner += fuckdl_text
-    
-    banner += """
-    Playready and Widevine DRM downloader and decrypter                       
-                                                                              
-    +------------------------------------------------------------------+      
-    |                    Created By Barbie DRM                         |      
-    |                  https://t.me/barbiedrm                          |      
-    +------------------------------------------------------------------+      
-                                                                              
-================================================================================
-"""
-    return banner
+from fuckdl.config import directories, filenames  # isort: split
 
 
 @click.command(context_settings=dict(
@@ -64,11 +20,11 @@ def get_ascii_art():
               help="Enable DEBUG level logs on the console. This is always enabled for log files.")
 def main(debug):
     """
-    fuckdl is the most convenient command-line program to
+    Fuckdl is the most convenient command-line program to
     download videos from Playready and Widevine DRM-protected video platforms.
     """
-    LOG_FORMAT = "{asctime} [{levelname[0]}] {name} : {message}"
-    LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+    LOG_FORMAT = "[{levelname[0]}] {name} : {message}"
+    LOG_DATE_FORMAT = ""
     LOG_STYLE = "{"
 
     def log_exit(self, msg, *args, **kwargs):
@@ -85,7 +41,7 @@ def main(debug):
         style=LOG_STYLE,
         handlers=[logging.FileHandler(
             os.path.join(directories.logs, filenames.log.format(time=datetime.now().strftime("%Y%m%d-%H%M%S"))),
-            encoding='utf-8'
+            encoding="utf-8"
         )]
     )
 
@@ -97,12 +53,10 @@ def main(debug):
         handlers=[logging.StreamHandler()],
     )
 
-    # Display ASCII art banner
-    print(get_ascii_art())
+    log = logging.getLogger("fuckdl")
 
-    log = logging.getLogger("vt")
-
-    log.info("fuckdl - Playready and Widevine DRM downloader and decrypter")
+    log.info("Fuckdl - Restructured for Scalability")
+    log.info("[Telegram]        : @barbiedrm")
     log.info(f"[Root Config]     : {filenames.user_root_config}")
     log.info(f"[Service Configs] : {directories.service_configs}")
     log.info(f"[Cookies]         : {directories.cookies}")
@@ -111,8 +65,8 @@ def main(debug):
     log.info(f"[Logs]            : {directories.logs}")
     log.info(f"[Temp Files]      : {directories.temp}")
     log.info(f"[Downloads]       : {directories.downloads}")
-    
-    os.environ['PATH'] = os.path.abspath('./binaries')
+
+    os.environ["PATH"] = os.path.abspath("./binaries")
 
     if len(sys.argv) > 1 and sys.argv[1].lower() == "dl":
         sys.argv.pop(1)

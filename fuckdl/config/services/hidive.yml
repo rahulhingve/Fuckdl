@@ -1,0 +1,10 @@
+endpoints:
+  login: https://dce-frontoffice.imggaming.com/api/v2/login
+  profile: https://dce-frontoffice.imggaming.com/api/v1/profile
+  guest_token: https://dce-frontoffice.imggaming.com/api/v2/login/guest/checkin
+  refresh: https://dce-frontoffice.imggaming.com/api/v2/token/refresh
+  license: https://shield-drm.imggaming.com/api/v2/license
+  playback: https://dve-api.imggaming.com/video/{id}/playback
+  playbackDetails: https://dce-frontoffice.imggaming.com/api/v4/vod/{id}
+  title_data: https://dce-frontoffice.imggaming.com/api/v1/view
+  series_data: https://dce-frontoffice.imggaming.com/api/v4/series/{series_id}/adjacentTo/{season_id}

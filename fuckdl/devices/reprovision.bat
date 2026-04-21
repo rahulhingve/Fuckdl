@@ -1,0 +1,1 @@
+pyplayready reprovision-device hisense_smarttv_hu50a6100uw_sl3000.prd

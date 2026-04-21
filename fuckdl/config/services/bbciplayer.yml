@@ -1,13 +1,36 @@
+# Authentication settings
 needs_auth: false
 
+# Base URLs
 base_url: https://www.bbc.co.uk/iplayer/{type}/{pid}
 user_agent: smarttv_AFTMM_Build_0003255372676_Chromium_41.0.2250.2
 api_key: D2FgtcTxGqqIgLsfBWTJdrQh2tVdeaAp
 
+# API endpoints
 endpoints:
+  # Episode metadata endpoint
   episodes: https://ibl.api.bbci.co.uk/ibl/v1/episodes/{pid}?rights=mobile&availability=available
+  
+  # GraphQL metadata endpoint
   metadata: https://graph.ibl.api.bbc.co.uk/
+  
+  # Playlist endpoint
   playlist: https://www.bbc.co.uk/programmes/{pid}/playlist.json
+  
+  # Open media selector (non-UHD content)
   open: https://{}/mediaselector/6/select/version/2.0/mediaset/{}/vpid/{}/
+  
+  # Secure media selector (UHD content)
   secure: https://{}/mediaselector/6/select/version/2.0/vpid/{}/format/json/mediaset/{}/proto/https
+  
+  # Search endpoint
   search: https://search.api.bbci.co.uk/formula/iplayer-ibl-root
+
+# Media selectors
+mediators:
+  open:
+    - open.live.bbc.co.uk
+    - open.stage.bbc.co.uk
+  secure:
+    - securegate.iplayer.bbc.co.uk
+    - ipsecure.stage.bbc.co.uk

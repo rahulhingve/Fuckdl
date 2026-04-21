@@ -1,5 +1,81 @@
+base_url: 'https://default.any-any.prd.api.discomax.com'
+client_id: 'b6746ddc-7bc7-471f-a16c-f6aaf0c34d26'
+realm: 'bolt'
+site_id: 'beam'
+
 endpoints:
+  # Content routing endpoints
   contentRoutes: 'https://default.prd.api.hbomax.com/cms/routes/%s/%s?include=default'
+  
+  # Movie and video endpoints
   moviePages: 'https://default.prd.api.hbomax.com/content/videos/%s/activeVideoForShow?&include=edit'
+  videoPages: 'https://default.prd.api.hbomax.com/content/videos/%s'
+  
+  # Playback and streaming endpoints
   playbackInfo: 'https://default.prd.api.hbomax.com/any/playback/v1/playbackInfo'
+  bootstrap: 'https://default.any-any.prd.api.hbomax.com/session-context/headwaiter/v1/bootstrap'
+  
+  # Series and episodes endpoints
   showPages: 'https://default.prd.api.hbomax.com/cms/collections/generic-show-page-rail-episodes-tabbed-content?include=default&pf[show.id]=%s&%s'
+  seasonPages:
+    miniSeries: 'https://default.prd.api.hbomax.com/cms/collections/generic-miniseries-page-rail-episodes?include=default&pf[show.id]=%s&%s'
+    topical: 'https://default.prd.api.hbomax.com/cms/collections/generic-topical-show-page-rail-episodes?include=default&pf[show.id]=%s&%s'
+  
+  # Search endpoint
+  search: 'https://default.prd.api.hbomax.com/search'
+  
+  # Token endpoint
+  token: '/token'
+
+# User agent configurations by platform
+user_agents:
+  android:
+    beam: 'BEAM-Android/5.0.0 (motorola/moto g(6) play)'
+    discovery: 'Discovery Player Android androidTV/1.8.1-canary.102'
+    samsung: 'BEAM-Android/1.0.0.104 (SONY/XR-75X95EL)'
+  web:
+    firefox: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/113.0'
+    chrome: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+
+# DRM configuration
+drm:
+  widevine:
+    enabled: true
+    license_endpoint: '/any/playback/v1/playbackInfo'
+  playready:
+    enabled: true
+    license_endpoint: '/any/playback/v1/playbackInfo'
+
+# Device configurations
+devices:
+  androidtv:
+    platform: 'android'
+    device_type: 'androidtv'
+    make: 'NVIDIA'
+    model: 'SHIELD Android TV'
+    os_name: 'ANDROID'
+    os_version: '10'
+    player_sdk: 'Discovery Player Android androidTV'
+    player_version: '1.8.1-canary.102'
+    media_engine: 'exoPlayer'
+    media_engine_version: '1.2.1'
+  
+  web:
+    platform: 'web'
+    device_type: 'web'
+    make: 'Generic'
+    model: 'Desktop'
+    os_name: 'WINDOWS'
+    os_version: '10.0'
+    browser_name: 'chrome'
+    browser_version: '113.0.0.0'
+  
+  samsung:
+    platform: 'samsung'
+    device_type: 'samsungtv'
+    make: 'Samsung'
+    model: 'Samsung-Unknown'
+    os_name: 'Tizen'
+    os_version: '124.0.0.0'
+    player_sdk: 'Beam Player Samsung'
+    player_version: '4.0.0.118'

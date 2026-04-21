@@ -1,467 +1,905 @@
-import json
 import re
+import sys
+import logging
+from typing import Any, Optional
 from urllib.parse import urljoin
-from datetime import datetime, timedelta
 from pathlib import Path
 
 import click
-import m3u8
-import requests
-import jsonpickle
+import httpx
+import yaml
 
-from fuckdl.objects import Title, Tracks
-from fuckdl.objects.tracks import AudioTrack, MenuTrack, TextTrack, VideoTrack
+from fuckdl.objects import Title, Tracks, MenuTrack
 from fuckdl.services.BaseService import BaseService
 from fuckdl.utils.widevine.device import LocalDevice
-from requests.adapters import HTTPAdapter, Retry
-from fuckdl.config import config
+from fuckdl.config import directories
+
+# Silent httpx warnings
+logging.getLogger("httpx").setLevel(logging.ERROR)
+logging.getLogger("httpcore").setLevel(logging.ERROR)
+
 
 class ParamountPlus(BaseService):
     """
-    Service code for Paramount's Paramount+ streaming service (https://paramountplus.com).
+    Service code for Paramount+ streaming service (https://paramountplus.com).
+    Updated By @AnotherBigUserHere 
+    V5 Final
+    
+    + More details about User Information
+    + Added new MDP endpoint (vod.pplus.paramount.tech) to new titles
+    + New Series and Movies Retrieving, to accept the new method
+    + MPD and HLS manifest handling
+    + Video codec (H264/H265) and quality filtering
+    + All regions need authentication (INTL, US AND FR) and a valid subscription 
+    + Some Series are not completely downloaded, you will need to use Multiperiod flag
+    
+    Used unshackle version to make this final version
+    Fixed by @caritoons in yml path
+    
+    Authorization: Credentials (Android Login)
+    Security Levels:
+    - WV L1/L3: up to 4K
+    - PR SL3000/SL2000: up to 4K
 
-    \b
-    Authorization: Credentials
-    Security: UHD@L3, doesn't care about releases.
+    Added by @AnotherBigUserHere
+    Exclusive for Fuckdl
+    Copyright AnotherBigUserHere 2026
     """
 
     ALIASES = ["PMTP", "paramountplus", "paramount+"]
-    TITLE_RE = [
-        r"^https?://(?:www\.)?paramountplus\.com/(?P<type>movies)/[a-z0-9_-]+/(?P<id>\w+)",
-        r"^https?://(?:www\.)?paramountplus\.com/(?P<type>shows)/(?P<id>[a-zA-Z0-9_-]+)(/)?",
-        r"^https?://(?:www\.)?paramountplus\.com(?:/[a-z]{2})?/(?P<type>movies)/[a-z0-9_-]+/(?P<id>\w+)",
-        r"^https?://(?:www\.)?paramountplus\.com(?:/[a-z]{2})?/(?P<type>shows)/(?P<id>[a-zA-Z0-9_-]+)(/)?",
-        r"^(?P<id>\d+)$",
-    ]
-    VIDEO_CODEC_MAP = {"H264": ["avc", "avc1"], "H265": ["hvc", "dvh", "hvc1", "hev1", "dvh1", "dvhe"]}
-    AUDIO_CODEC_MAP = {"AAC": "mp4a", "AC3": "ac-3", "EC3": "ec-3"}
+    TITLE_RE = r"https?://(?:www\.)?paramountplus\.com(?:/[a-z]{2})?/(?P<type>movies|shows)/(?P<p1>[a-zA-Z0-9_-]+)(?:/(?P<p2>[a-zA-Z0-9_-]+))?"
 
     @staticmethod
     @click.command(name="ParamountPlus", short_help="https://paramountplus.com")
-    @click.argument("title", type=str, required=False)
-    @click.option("-m", "--movie", is_flag=True, default=False, help="Title is a Movie.")
-    @click.option(
-        "-c", "--clips", is_flag=True, default=False, help="Download clips instead of episodes (for TV shows)"
-    )
+    @click.argument("title", type=str)
+    @click.option("-r", "--region", default=None, help="Specify region (us, intl, fr)")
+    @click.option("-c", "--clips", is_flag=True, default=False, help="Download clips instead of full episodes")
+    @click.option("-m", "--movie", is_flag=True, default=False, help="Title is a Movie")
     @click.pass_context
     def cli(ctx: click.Context, **kwargs):
         return ParamountPlus(ctx, **kwargs)
-
-    def __init__(self, ctx: click.Context, title: str, movie: bool, clips: bool):
+    
+    def __init__(self, ctx: click.Context, title: str, region: str = None, clips: bool = False, movie: bool = False):
         super().__init__(ctx)
-        m = self.parse_title(ctx, title)
-        self.movie = movie #or m.get("type") == "movies"
+        self.title = title
+        self.region = region
         self.clips = clips
-
-        self.vcodec = ctx.parent.params["vcodec"]
-        self.acodec = ctx.parent.params["acodec"]
-        self.range = ctx.parent.params["range_"]
-        self.wanted = ctx.parent.params["wanted"]
-        self.shorts = False
+        self.movie = movie
         
-        self.cdm = ctx.obj.cdm
-        self.profile = ctx.obj.profile
+        # Initialize HTTP client
+        self.client = httpx.Client(
+            headers={
+                "User-Agent": "Paramount+/12.0.70 (com.cbs.ott; build:211264860; Android SDK 29; androidphone; SM-G975W) okhttp/4.10.0",
+                "Accept": "application/json, text/plain, */*",
+            },
+            timeout=30.0,
+            follow_redirects=True,
+        )
+        
+        # Load config
+        self._load_config()
+        
+        # Detect or set region
+        self._setup_region()
+        
+        # Authentication
+        self._authenticate()
 
-        ctx.parent.params["acodec"] = "EC3"
+    def _load_config(self):
+        """Load configuration from YAML file."""
+        config_path = Path(__file__).resolve().parents[1] / "config" / "services" / "paramountplus.yml"
+        
+        if not config_path.exists():
+            raise self.log.exit(f" - Configuration file not found at: {config_path}")
+        
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                self.config = yaml.safe_load(f)
+            self.log.debug(f" + Loaded config from: {config_path}")
+        except Exception as e:
+            raise self.log.exit(f" - Error loading config from {config_path}: {e}")
 
-        if self.range != "SDR":
-            # vcodec must be H265 for High Dynamic Range
-            self.vcodec = "H265"
+    def _setup_region(self):
+        """Setup region configuration."""
+        if not self.region:
+            # Auto-detect region
+            try:
+                ip_info = self.client.get("https://ipinfo.io/json").json()
+                country = ip_info.get("country", "US").upper()
+                self.log.info(f" + Detected region: {country}")
+                
+                if country == "US":
+                    self.region = "US"
+                elif country == "FR":
+                    self.region = "FR"
+                else:
+                    self.region = "INTL"
+            except Exception as e:
+                self.log.debug(f" + Region detection failed: {e}")
+                self.log.warning(" + Could not detect region, using US as default.")
+                self.region = "US"
+        else:
+            self.region = self.region.upper()
+        
+        # Get region config
+        regions = self.config.get("regions", {})
+        
+        if "regions" not in self.config:
+            raise self.log.exit(" - No 'regions' section found in configuration file")
+            
+        if self.region in regions:
+            region_key = self.region
+        elif self.region == "FR":
+            region_key = "FR"
+        else:
+            region_key = "INTL" if "INTL" in regions else "US" if "US" in regions else list(regions.keys())[0]
+        
+        self.log.info(f" + Using configuration for: {region_key}")
+        self.region_config = regions[region_key]
+        
+        if not self.region_config:
+            raise self.log.exit(f" - No configuration found for region {region_key}")
+            
+        self.at_token = self.region_config.get("at_token")
+        
+        if not self.at_token:
+            raise self.log.exit(" - at_token not found in region configuration")
 
-        self.configure()
+    def _authenticate(self):
+        """Authenticate with Paramount+."""
+        if not self.credentials:
+            if self.region != "US":
+                self.log.warning(" - INTL/FR regions usually require credentials")
+            return
+        
+        self.log.info(" + Logging in...")
+        
+        login_url = self.region_config["endpoints"]["login"]
+        params = {
+            "at": self.at_token,
+            "j_username": self.credentials.username,
+            "j_password": self.credentials.password,
+        }
+        
+        response = self.client.post(login_url, params=params)
+        
+        if response.status_code != 200:
+            self.log.error(f" - Login error: {response.status_code}")
+            if response.text:
+                try:
+                    error_json = response.json()
+                    self.log.error(f" - Error: {error_json.get('errorCode', 'Unknown')} - {error_json.get('message', '')}")
+                except:
+                    self.log.error(f" - Response: {response.text[:200]}")
+            raise self.log.exit(" - Login failed. Check your credentials.")
+        
+        response.raise_for_status()
+        self.log.info(" + Login successful")
+        
+        # Verify login
+        status_url = self.region_config["endpoints"]["status"]
+        status_response = self.client.get(status_url, params={"at": self.at_token})
+        
+        if status_response.status_code != 200:
+            raise self.log.exit(" - Failed to verify login status")
+        
+        status_data = status_response.json()
+        
+        if not status_data.get("isLoggedIn") and not status_data.get("success"):
+            raise self.log.exit(" - Failed to verify login status (not authenticated).")
+        
+        self.log.info(f" + Session started for: {status_data.get('firstName')} {status_data.get('lastName', 'User')}")
+        self.logged_in = True
+
+    def _get_params(self, extra: dict = None) -> dict:
+        """Get base parameters for API calls."""
+        params = {"at": self.at_token}
+        if extra:
+            params.update(extra)
+        return params
 
     def get_titles(self):
+        """Get title(s) from URL."""
+        # If movie flag is set, treat as movie
         if self.movie:
-            self.title = self.title.split('/movies/')[-1].split('/')[0]
-            res = self.session.get(
-                url=self.config[self.region]["movie"].format(title_id=self.title),
-                params={
-                    "includeTrailerInfo": "true",
-                    "includeContentInfo": "true",
-                    "locale": "en-us",
-                    "at": self.config[self.region]["at_token"],
-                },
-            ).json()
-            if not res["success"]:
-                if res["message"] == "No movie found for contentId.":
-                    raise self.log.exit(" - Unable to find movie. For TV shows, use the numeric ID.")
-                else:
-                    raise self.log.exit(f" - Failed to get title information: {res['message']}")
+            match = re.search(self.TITLE_RE, self.title)
+            if match:
+                p1 = match.group("p1")
+                p2 = match.group("p2")
+                content_id = p2 if p2 else p1
+            else:
+                content_id = self.title
+            return self._get_movie(content_id)
+        
+        # Otherwise parse as show
+        match = re.search(self.TITLE_RE, self.title)
+        if not match:
+            raise self.log.exit(f" - Could not parse URL: {self.title}")
+        
+        kind = match.group("type")
+        p1 = match.group("p1")
+        p2 = match.group("p2")
+        
+        if kind == "movies":
+            content_id = p2 if p2 else p1
+            return self._get_movie(content_id)
+        else:  # shows
+            content_id = p1
+            return self._get_series(content_id)
 
-            title = res["movie"]["movieContent"]
-
-            return Title(
-                id_=title["contentId"],
+    def _get_movie(self, content_id: str):
+        """Get movie information."""
+        url = self.region_config["endpoints"]["movie"].format(title_id=content_id)
+        
+        params = self._get_params({
+            "includeTrailerInfo": "true",
+            "includeContentInfo": "true",
+            "locale": "en-us"
+        })
+        
+        response = self.client.get(url, params=params)
+        
+        if response.status_code == 404:
+            raise self.log.exit(f" - Movie not found with ID: {content_id}")
+        
+        response.raise_for_status()
+        data = response.json()
+        
+        if not data.get("success"):
+            raise self.log.exit(f" - Error getting movie: {data.get('message', 'Unknown error')}")
+        
+        movie_data = data.get("movie", {}).get("movieContent", data)
+        content_id = movie_data.get("contentId") or movie_data.get("content_id")
+        
+        title_name = movie_data.get("title") or movie_data.get("label", "Unknown")
+        year = movie_data.get("_airDateISO", "")[:4]
+        
+        self.log.info(f" + Movie found: {title_name} ({year}) - ID: {content_id}")
+        
+        return [
+            Title(
+                id_=content_id,
                 type_=Title.Types.MOVIE,
-                name=title["title"],
-                year=title["_airDateISO"][:4],  # todo: find a way to get year, this api doesnt return it
-                original_lang="en",  # TODO: Don't assume
+                name=title_name,
+                year=year,
+                original_lang="en",
                 source=self.ALIASES[0],
-                service_data=title,
+                service_data=movie_data,
             )
+        ]
+
+    def _get_series(self, content_id: str):
+        """Get series episodes or clips."""
+        # Get show info
+        url = self.region_config["endpoints"]["shows"].format(title=content_id)
+        response = self.client.get(url, params=self._get_params())
+        
+        if response.status_code == 404:
+            raise self.log.exit(f" - Show not found with ID: {content_id}")
+        
+        response.raise_for_status()
+        data = response.json()
+        
+        if not data.get("success"):
+            raise self.log.exit(f" - Error getting show: {data.get('message', 'Unknown error')}")
+        
+        # Get show_id
+        show_id = None
+        show_info = None
+        
+        show_results = data.get("show", {}).get("results", [])
+        for result in show_results:
+            if result.get("type") == "show":
+                show_id = result.get("show_id") or result.get("id")
+                show_info = result
+                break
+        
+        if not show_id:
+            show_id = data.get("show_id") or data.get("id")
+        
+        if not show_id:
+            for key in ["cbsShowId", "showId", "seriesId"]:
+                if data.get(key):
+                    show_id = data[key]
+                    break
+        
+        if not show_id:
+            raise self.log.exit(" - Could not find show_id")
+        
+        self.log.info(f" + Found show_id: {show_id}")
+        
+        # Get seasons
+        seasons = self._get_seasons(data, show_id)
+        self.log.info(f" + Seasons to fetch: {seasons[:10]}{'...' if len(seasons) > 10 else ''}")
+        
+        # Determine content type based on clips flag
+        clips_mode = getattr(self, 'clips', False)
+        
+        if clips_mode:
+            self.log.info(" + Clip mode enabled - searching for clips")
+        
+        titles = []
+        
+        # FIRST: Try to get configs from show menu (this is where the real configs are)
+        menu_configs = self._get_configs_from_menu(data, clips_mode)
+        
+        if menu_configs:
+            self.log.debug(f" + Found menu configs: {menu_configs}")
+            titles = self._fetch_from_configs(show_id, menu_configs, seasons, show_info, clips_mode)
+        
+        # SECOND: If no titles found, try fallback configs
+        if not titles:
+            fallback_configs = self._get_fallback_configs(clips_mode)
+            self.log.debug(f" + Trying fallback configs: {fallback_configs}")
+            titles = self._fetch_from_configs(show_id, fallback_configs, seasons, show_info, clips_mode)
+        
+        content_type = "clips" if clips_mode else "episodes"
+        
+        if not titles:
+            if not clips_mode:
+                self.log.warning(" + No full episodes found. Try using --clips flag for clips")
+            else:
+                self.log.warning(" + No clips found. Try without --clips flag for full episodes")
+            raise self.log.exit(" - No content found")
+        
+        # Sort by season and episode
+        titles.sort(key=lambda x: (x.season or 0, x.episode or 0))
+        
+        # Log season statistics
+        season_counts = {}
+        for t in titles:
+            season_counts[t.season] = season_counts.get(t.season, 0) + 1
+        
+        season_info = ", ".join([f"{s} ({c})" for s, c in sorted(season_counts.items())])
+        
+        return titles
+
+    def _get_seasons(self, data: dict, show_id: str) -> list:
+        """Get available seasons."""
+        seasons = []
+        
+        # Method 1: available_video_seasons
+        available_seasons = data.get("available_video_seasons", {})
+        if isinstance(available_seasons, dict):
+            items = available_seasons.get("itemList", [])
+            for season in items:
+                if season.get("seasonNum"):
+                    seasons.append(str(season["seasonNum"]))
+        
+        # Method 2: availability API
+        if not seasons:
+            try:
+                device_type = self.config.get("device_type", "androidtablet")
+                season_endpoint = f"/apps-api/v3.0/{device_type}/shows/{show_id}/video/season/availability.json"
+                season_url = urljoin(self.region_config["base_url"], season_endpoint)
+                
+                season_resp = self.client.get(season_url, params=self._get_params())
+                if season_resp.status_code == 200:
+                    season_data = season_resp.json()
+                    if season_data.get("success") and "video_available_season" in season_data:
+                        season_items = season_data["video_available_season"].get("itemList", [])
+                        seasons = [str(item.get("seasonNum")) for item in season_items if item.get("seasonNum")]
+            except Exception as e:
+                self.log.debug(f" + Error fetching seasons from API: {e}")
+        
+        if not seasons:
+            self.log.warning(" + No seasons list found, will discover from content")
+            seasons = ["all"]
+        
+        return seasons
+
+    def _get_configs_from_menu(self, data: dict, clips_mode: bool) -> list:
+        """Extract video config names from show menu."""
+        configs = []
+        show_menu = data.get("showMenu", [])
+        
+        # Keywords for episodes vs clips
+        episode_keywords = ["Episodes", "Full Episodes", "Episodios", "Fight Selector"]
+        clip_keywords = ["Clips", "Match Replays", "Highlights", "Most Recent Clips"]
+        
+        target_keywords = clip_keywords if clips_mode else episode_keywords
+        
+        for menu_item in show_menu:
+            links = menu_item.get("links", [])
+            for link in links:
+                title_text = link.get("title", "").strip()
+                
+                # Check if title matches any target keyword
+                for keyword in target_keywords:
+                    if keyword.lower() in title_text.lower():
+                        config = link.get("videoConfigUniqueName")
+                        if config and config not in configs:
+                            configs.append(config)
+                            self.log.debug(f" + Found config from menu: {title_text} -> {config}")
+        
+        return configs
+
+    def _get_fallback_configs(self, clips_mode: bool) -> list:
+        """Get fallback config names to try."""
+        if clips_mode:
+            return [
+                "DEFAULT_APPS_MOST_RECENT_CLIPS",
+                "SPORTS_SHOW_LANDING_CLIPS",
+                "clips",
+                "CLIPS",
+                "most-recent-clips"
+            ]
         else:
-            self.title = self.title.split('/shows/')[-1].split('/')[0]
-            res = self.session.get(
-                url=self.config[self.region]["shows"].format(title=self.title)
-            ).json()
-            links = next((x.get("links") for x in res["showMenu"] if x.get("device_app_id") == "all_platforms"), None)
-            config = next((x.get("videoConfigUniqueName") for x in links if x.get("title").strip() == "Episodes"), None)
-            show = next((x for x in res["show"]["results"] if x.get("type") == "show"), None)
-            seasons = [x["seasonNum"] for x in res["available_video_seasons"]["itemList"] if x.get("seasonNum")]
-            showId = show.get("show_id")
+            return [
+                "FULL_EPISODES",
+                "full-episodes",
+                "fullepisodes",
+                "episodes",
+                "EPISODES",
+                "DEFAULT_APPS_MOST_RECENT_EPISODES",
+                "DEFAULT_APPS_FULL_EPISODES",
+                "SPORTS_SHOW_LANDING_EPISODES"
+            ]
 
-            show_data = self.session.get(
-                url=self.config[self.region]["section"].format(showId=showId, config=config),
-                params={"platformType": "apps", "rows": "1", "begin": "0"},
-            ).json()
-
-            section = next(
-                (x["sectionId"] for x in show_data["videoSectionMetadata"] if x["title"] == "Full Episodes"), None
-            )
-
-            episodes = []
-            for season in seasons:
-                rows = self.config[self.region]["rows"]
-                res = self.session.get(
-                    url=self.config[self.region]["seasons"].format(section=section),
-                    params={"begin": "0", "rows": rows, "params": f"seasonNum={season}", "seasonNum": season},
-                ).json()
-                itemCount = res["sectionItems"]["itemCount"]
-                episodes.extend(res["sectionItems"].get("itemList"))
-                if int(itemCount) > int(rows):
-                    itemCount = int(itemCount) - int(rows)
-                    beggin = int(rows)
-                    while itemCount > 0:
-                        res = self.session.get(
-                            url=self.config[self.region]["seasons"].format(section=section),
-                            params={"begin": beggin, "rows": rows, "params": f"seasonNum={season}", "seasonNum": season}
-                        ).json()
-                        episodes.extend(res["sectionItems"].get("itemList"))
-                        beggin = beggin + int(rows)
-                        itemCount = int(itemCount) - int(rows)
-
-            titles = []
-            for episode in episodes:
-                titles.append(
-                    Title(
-                        id_=episode.get("contentId") or episode.get("content_id"),
-                        type_=Title.Types.TV,
-                        name=episode.get("seriesTitle") or episode.get("series_title"),
-                        season=episode.get("seasonNum") or episode.get("season_number") or 0,
-                        episode=episode["episodeNum"] if episode["fullEpisode"] else episode["positionNum"],
-                        episode_name=episode["label"],
-                        original_lang="en",  # TODO: Don't assume
-                        source=self.ALIASES[0],
-                        service_data=episode,
-                    )
+    def _fetch_from_configs(self, show_id: str, configs: list, seasons: list, show_info: dict, clips_mode: bool):
+        """Fetch content using a list of config names."""
+        titles = []
+        device_type = self.config.get("device_type", "androidtablet")
+        
+        content_filter = (lambda ep: not ep.get("fullEpisode", True)) if clips_mode else (lambda ep: ep.get("fullEpisode", False) or ep.get("mediaType") == "Full Episode")
+        
+        for config in configs:
+            self.log.debug(f" + Trying config: {config}")
+            
+            config_url = f"/apps-api/v2.0/{device_type}/shows/{show_id}/videos/config/{config}.json"
+            config_full_url = urljoin(self.region_config["base_url"], config_url)
+            
+            try:
+                config_resp = self.client.get(
+                    config_full_url,
+                    params=self._get_params({"platformType": "apps", "rows": "1", "begin": "0"})
                 )
+                
+                if config_resp.status_code != 200:
+                    continue
+                
+                config_data = config_resp.json()
+                
+                if not config_data.get("success", True):
+                    continue
+                
+                # Get sectionIds
+                section_ids = config_data.get("sectionIds", [])
+                if not section_ids:
+                    for result in config_data.get("results", []):
+                        if result.get("id"):
+                            section_ids.append(result["id"])
+                
+                if not section_ids:
+                    continue
+                
+                self.log.debug(f" + Found section_ids: {section_ids} with config {config}")
+                
+                # Check if this section is season-based
+                section_metadata = config_data.get("videoSectionMetadata", [])
+                display_seasons = False
+                for meta in section_metadata:
+                    if meta.get("sectionId") in section_ids:
+                        display_seasons = meta.get("display_seasons", False)
+                        self.log.debug(f" + Section {meta.get('sectionId')} display_seasons: {display_seasons}")
+                
+                # Fetch content for each section_id
+                for section_id in section_ids:
+                    if display_seasons:
+                        # Use seasons list
+                        for season in seasons:
+                            if season != "all":
+                                items = self._fetch_items_from_section(section_id, show_id, season)
+                                for item in items:
+                                    if content_filter(item):
+                                        titles.append(self._create_title_from_episode(item, show_info))
+                    else:
+                        # Don't filter by season
+                        items = self._fetch_items_from_section(section_id, show_id, None)
+                        self.log.debug(f" + Got {len(items)} items from section {section_id}")
+                        for item in items:
+                            if content_filter(item):
+                                titles.append(self._create_title_from_episode(item, show_info))
+                
+                if titles:
+                    return titles
+                    
+            except Exception as e:
+                self.log.debug(f" + Error with config {config}: {e}")
+                import traceback
+                self.log.debug(traceback.format_exc())
+                continue
+        
+        return titles
 
-            return titles
+    def _fetch_items_from_section(self, section_id: str, show_id: str, season_num: str = None):
+        """Fetch items (episodes/clips) from a section ID."""
+        items = []
+        device_type = self.config.get("device_type", "androidtablet")
+        
+        section_url = f"/apps-api/v2.0/{device_type}/videos/section/{section_id}.json"
+        full_url = urljoin(self.region_config["base_url"], section_url)
+        
+        page = 0
+        rows = 100  # Increased to get more items per page
+        
+        while True:
+            params = self._get_params({
+                "begin": str(page * rows),
+                "rows": str(rows),
+                "locale": "en-us"
+            })
+            
+            # Only add seasonNum if provided
+            if season_num:
+                params["seasonNum"] = season_num
+            
+            self.log.debug(f" + Fetching section {section_id} page {page}" + (f" season {season_num}" if season_num else ""))
+            
+            try:
+                resp = self.client.get(full_url, params=params)
+                if resp.status_code != 200:
+                    self.log.debug(f" + Section request failed: {resp.status_code}")
+                    break
+                
+                data = resp.json()
+                page_items = []
+                
+                # Debug: log response structure
+                if page == 0:
+                    self.log.debug(f" + Section response keys: {list(data.keys())}")
+                    if "results" in data:
+                        self.log.debug(f" + Results count: {len(data['results'])}")
+                        if data['results']:
+                            first_result = data['results'][0]
+                            self.log.debug(f" + First result keys: {list(first_result.keys())}")
+                            if 'sectionItems' in first_result:
+                                self.log.debug(f" + sectionItems keys: {list(first_result['sectionItems'].keys())}")
+                                self.log.debug(f" + itemCount: {first_result['sectionItems'].get('itemCount', 'N/A')}")
+                
+                # Method 1: results array (INTL)
+                if "results" in data:
+                    for result in data["results"]:
+                        section_items = result.get("sectionItems", {})
+                        item_list = section_items.get("itemList", [])
+                        if item_list:
+                            page_items.extend(item_list)
+                            self.log.debug(f" + Found {len(item_list)} items in result")
+                
+                # Method 2: sectionItems direct
+                elif "sectionItems" in data:
+                    item_list = data["sectionItems"].get("itemList", [])
+                    if item_list:
+                        page_items.extend(item_list)
+                        self.log.debug(f" + Found {len(item_list)} items in sectionItems")
+                
+                # Method 3: itemList direct
+                elif "itemList" in data:
+                    page_items = data["itemList"]
+                    self.log.debug(f" + Found {len(page_items)} items in itemList")
+                
+                if not page_items:
+                    self.log.debug(f" + No items found on page {page}")
+                    break
+                
+                items.extend(page_items)
+                self.log.debug(f" + Total items so far: {len(items)}")
+                
+                # Check if there are more pages
+                total_count = None
+                if "results" in data and data["results"]:
+                    total_count = data["results"][0].get("sectionItems", {}).get("itemCount", 0)
+                elif "sectionItems" in data:
+                    total_count = data["sectionItems"].get("itemCount", 0)
+                elif "itemCount" in data:
+                    total_count = data["itemCount"]
+                
+                if total_count and len(items) >= total_count:
+                    self.log.debug(f" + Reached total count: {total_count}")
+                    break
+                
+                # If we got fewer items than requested, we're on the last page
+                if len(page_items) < rows:
+                    self.log.debug(f" + Last page reached (got {len(page_items)} < {rows})")
+                    break
+                
+                page += 1
+                
+                # Safety limit
+                if page > 50:
+                    self.log.warning(f" + Too many pages, stopping at {page}")
+                    break
+                
+            except Exception as e:
+                self.log.error(f" + Error fetching section {section_id}: {e}")
+                import traceback
+                self.log.debug(traceback.format_exc())
+                break
+        
+        self.log.debug(f" + Returning {len(items)} items from section {section_id}")
+        return items
+
+    def _get_section_from_config(self, show_id: str, config: str):
+        """Get section ID from config name."""
+        device_type = self.config.get("device_type", "androidtablet")
+        config_url = f"/apps-api/v2.0/{device_type}/shows/{show_id}/videos/config/{config}.json"
+        config_full_url = urljoin(self.region_config["base_url"], config_url)
+        
+        try:
+            resp = self.client.get(
+                config_full_url,
+                params=self._get_params({"platformType": "apps", "rows": "1", "begin": "0"})
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                section_ids = data.get("sectionIds", [])
+                if section_ids:
+                    return str(section_ids[0])
+        except Exception:
+            pass
+        
+        return None
+
+    def _create_title_from_episode(self, ep: dict, show_info: dict):
+        """Create a Title object from episode/clip data."""
+        ep_id = ep.get("contentId") or ep.get("content_id") or ep.get("id")
+        
+        season_num = ep.get("seasonNum") or ep.get("seasonNumber") or 0
+        episode_num = ep.get("episodeNum") or ep.get("episodeNumber") or 0
+        
+        try:
+            season_int = int(season_num) if season_num else 0
+            episode_int = int(episode_num) if episode_num else 0
+        except (ValueError, TypeError):
+            season_int = 0
+            episode_int = 0
+        
+        series_title = (
+            ep.get("seriesTitle") or 
+            ep.get("series_title") or 
+            ep.get("showTitle") or
+            (show_info.get("title") if show_info else "Unknown")
+        )
+        
+        episode_name = (
+            ep.get("label") or 
+            ep.get("title") or 
+            ep.get("episodeName") or 
+            (f"Clip {episode_num}" if not ep.get("fullEpisode", False) else f"Episode {episode_num}")
+        )
+        
+        return Title(
+            id_=ep_id,
+            type_=Title.Types.TV,
+            name=series_title,
+            season=season_int,
+            episode=episode_int,
+            episode_name=episode_name,
+            original_lang="en",
+            source=self.ALIASES[0],
+            service_data=ep,
+        )
 
     def get_tracks(self, title: Title):
-        assets = (
-            ["DASH_CENC_HDR10"],
-            [
-                "HLS_AES",
-                "DASH_LIVE",
-                "DASH_CENC_HDR10",
-                "DASH_TA",
-                "DASH_CENC",
-                "DASH_CENC_PRECON",
-                "DASH_CENC_PS4",
-            ],
-        )
-        for asset in assets:
-            r = requests.Request(
-                "GET",
-                url=self.config["LINK_PLATFORM_URL"].format(video_id=title.id),
-                params={
-                    "format": "redirect",
-                    "formats": "MPEG-DASH",
-                    "assetTypes": "|".join(asset),
-                    "manifest": "M3U",
-                    "Tracking": "true",
-                    "mbr": "true",
-                },
+        """Get tracks for the title."""
+        self.log.info(f" + Getting tracks for: {title.name}")
+        
+        manifest_url = self._get_manifest_url(title)
+        
+        if not manifest_url:
+            raise self.log.exit(f" - Could not get manifest for content ID: {title.id}")
+        
+        self.log.info(f" + Using manifest")
+        self.log.debug(f" + Manifest URL: {manifest_url}")
+        
+        # Parse manifest based on type
+        if manifest_url.endswith('.mpd') or 'mpd' in manifest_url.lower():
+            tracks = Tracks.from_mpd(
+                url=manifest_url,
+                source=self.ALIASES[0],
+                session=self.session
             )
-            req = self.session.send(self.session.prepare_request(r), allow_redirects=False)
-            if req.ok:
-                break
         else:
-            raise ValueError(f"Manifest Error: {req.text}")
-
-        mpd_url = req.headers.get('location')
-
-        try:
-            tracks: Tracks = Tracks.from_mpd(
-                url=mpd_url.replace("cenc_precon_dash", "cenc_dash"),
+            tracks = Tracks.from_hls(
+                url=manifest_url,
                 source=self.ALIASES[0],
-                session=self.session,
+                session=self.session
             )
-        except:
-            tracks: Tracks = Tracks.from_mpd(
-                url=mpd_url,
-                source=self.ALIASES[0],
-                session=self.session,
-            )
-        tracks.subtitles.clear()
-
-        req = self.session.get(
-            url=self.config["LINK_PLATFORM_URL"].format(video_id=title.id),
-            params={
-                "format": "redirect",
-                "formats": "M3U",
-                "assetTypes": "|".join(["HLS_FPS_PRECON"]),
-                "manifest": "M3U",
-                "Tracking": "true",
-                "mbr": "true",
-            },
-        )
-        hls_url = req.url
-
-        tracks_m3u8 = Tracks.from_m3u8(
-            m3u8.load(hls_url),
-            source=self.ALIASES[0],
-        )
-        tracks.subtitles = tracks_m3u8.subtitles
-
-        for track in tracks:
-            # track.id = track.id
-            if isinstance(track, VideoTrack):
-                track.hdr10 = (
-                    track.codec[:4] in ("hvc1", "hev1") and track.extra[0].attrib.get("codecs")[5] == "2"
-                ) or (track.codec[:4] in ("hvc1", "hev1") and "HDR10plus" in track.url)
-
-                track.dv = track.codec[:4] in ("dvh1", "dvhe")
-
-            if isinstance(track, VideoTrack) or isinstance(track, AudioTrack):
-                if self.shorts:
-                    track.encrypted = False
-
-            if isinstance(track, TextTrack):
-                track.codec = "vtt"
-                #if track.language.language == "en":
-                #    track.sdh = True  # TODO: don't assume SDH
-
-        if self.vcodec:
-             tracks.videos = [x for x in tracks.videos if (x.codec or "")[:4] in self.VIDEO_CODEC_MAP[self.vcodec]]
-
-        if self.acodec:
-            tracks.audios = [x for x in tracks.audios if (x.codec or "")[:4] == self.AUDIO_CODEC_MAP[self.acodec]]
-            
-        for track in tracks.audios:
-            role = track.extra[1].find("Role")
-            if role is not None and role.get("value") == "description":
-                track.descriptive = True
-
+        
+        if not tracks.videos and not tracks.audios:
+            raise self.log.exit(f" - No tracks could be obtained for this title.")
+        
+        if tracks.videos:
+            tracks.videos.sort(key=lambda x: (x.height or 0, x.bitrate or 0), reverse=True)
+            self.log.debug(f" + Found {len(tracks.videos)} video tracks (all qualities)")
+        
+        if tracks.audios:
+            tracks.audios.sort(key=lambda x: x.bitrate or 0, reverse=True)
+            self.log.debug(f" + Found {len(tracks.audios)} audio tracks (all languages)")
+        
+        # ========== IMPROVED SUBTITLE HANDLING ==========
+        if tracks.subtitles:
+            self.log.debug(f" + Found {len(tracks.subtitles)} subtitle tracks")
+            for subtitle in tracks.subtitles:
+                # Log subtitle details for debugging
+                codec_info = subtitle.codec if subtitle.codec else 'unknown'
+                self.log.debug(f"   - {subtitle.language}: {codec_info}")
+                
+                # Ensure wvtt subtitles are properly marked
+                if subtitle.codec and subtitle.codec.lower() == 'wvtt':
+                    self.log.debug(f"   - WVTT subtitle detected for {subtitle.language}, will convert to SRT")
+                
+                # If subtitle has no URL but has embedded data, log it
+                if not subtitle.url and hasattr(subtitle, 'extra') and subtitle.extra:
+                    self.log.debug(f"   - Subtitle with embedded data: {subtitle.language}")
+        
         return tracks
 
+    def _get_manifest_url(self, title: Title) -> Optional[str]:
+        """Get manifest URL using the platform link method."""
+        content_id = title.service_data.get("contentId") or title.service_data.get("content_id") or title.id
+        
+        # Platform link URL
+        link_url = "http://link.theplatform.com/s/dJ5BDC/media/guid/2198311517/{video_id}"
+        
+        base_url = link_url.format(video_id=content_id)
+        self.log.debug(f" + Platform URL: {base_url}")
+        
+        # Try different asset types
+        asset_groups = [
+            ["DASH_CENC_HDR10"],
+            ["HLS_AES", "DASH_LIVE", "DASH_CENC_HDR10", "DASH_TA", "DASH_CENC", "DASH_CENC_PRECON"],
+            []
+        ]
+        
+        for assets in asset_groups:
+            params = self._get_params({
+                "format": "redirect",
+                "formats": "MPEG-DASH",
+                "manifest": "M3U",
+                "Tracking": "true",
+                "mbr": "true"
+            })
+            
+            if assets:
+                params["assetTypes"] = "|".join(assets)
+            
+            try:
+                response = self.client.get(base_url, params=params, follow_redirects=False)
+                
+                if response.status_code in (301, 302) and 'location' in response.headers:
+                    location = response.headers['location']
+                    clean_url = location.replace("cenc_precon_dash", "cenc_dash")
+                    
+                    for test_url in [clean_url, location]:
+                        try:
+                            test_response = self.client.head(test_url, follow_redirects=False)
+                            if test_response.status_code == 200:
+                                self.log.debug(f" + Found valid manifest: {assets if assets else 'DEFAULT'}")
+                                return test_url
+                        except Exception:
+                            continue
+                            
+            except Exception as e:
+                self.log.debug(f" + Error with asset group {assets}: {e}")
+                continue
+        
+        # Fallback to streamingUrl from metadata
+        if title.service_data.get("streamingUrl"):
+            fallback_url = title.service_data["streamingUrl"]
+            clean_fallback = fallback_url.replace("cenc_precon_dash", "cenc_dash")
+            
+            try:
+                response = self.client.head(clean_fallback)
+                if response.status_code == 200:
+                    return clean_fallback
+            except Exception:
+                pass
+        
+        return None
+
     def get_chapters(self, title: Title):
+        """Get chapters (markers) from the video."""
         chapters = []
-        events = title.service_data.get("playbackEvents")
-        events = {k: v for k, v in events.items() if v is not None}
-        events = dict(sorted(events.items(), key=lambda item: item[1]))
+        events = title.service_data.get("playbackEvents", {})
+        
         if not events:
             return chapters
-
-        chapters_titles = {
+        
+        event_titles = {
             "endCreditChapterTimeMs": "Credits",
             "previewStartTimeMs": "Preview Start",
             "previewEndTimeMs": "Preview End",
-            "openCreditEndTimeMs": "openCreditEnd",
-            "openCreditStartTime": "openCreditStart",
+            "openCreditEndTimeMs": "Opening Credits End",
+            "openCreditStartTime": "Opening Credits Start",
         }
-
-        for name, time_ in events.items():
-            if isinstance(time_, (int, float)):
+        
+        for name, time_ms in events.items():
+            if time_ms and isinstance(time_ms, (int, float)):
                 chapters.append(
                     MenuTrack(
                         number=len(chapters) + 1,
-                        title=chapters_titles.get(name),
-                        timecode=MenuTrack.format_duration(time_ / 1000),
+                        title=event_titles.get(name, name.replace("TimeMs", "").replace("Time", "")),
+                        timecode=self._ms_to_timecode(time_ms),
                     )
                 )
-
-        # chapters = sorted(chapters, key=self.converter_timecode)
-
+        
         return chapters
 
+    def _ms_to_timecode(self, ms: int) -> str:
+        """Convert milliseconds to HH:MM:SS.mmm format."""
+        total_seconds = ms / 1000
+        hours = int(total_seconds // 3600)
+        minutes = int((total_seconds % 3600) // 60)
+        seconds = total_seconds % 60
+        return f"{hours:02d}:{minutes:02d}:{seconds:06.3f}"
+
     def certificate(self, **_):
-        return None  # will use common privacy cert
+        """Get license certificate (not needed for this service)."""
+        return None
 
-    def license(self, challenge, title, **_):
-        contentId = title.service_data.get("contentId") or title.service_data.get("content_id")
-        if not contentId:
-            raise ValueError("Error")
-
-        r = self.session.post(
-            url=self.config["license_pr"] if self.cdm.device.type == LocalDevice.Types.PLAYREADY else self.config["license_wv"],
-            params={
-                "CrmId": "cbsi",
-                "AccountId": "cbsi",
-                "SubContentType": "Default",
-                "ContentId": title.service_data.get("contentId") or title.service_data.get("content_id"),
-            },
-            headers={"Authorization": f"Bearer {self.get_barrear(content_id=contentId)}"},
-            data=challenge,  # expects bytes
-        )
-
-        if r.headers["Content-Type"].startswith("application/json"):
-            res = r.json()
-            raise ValueError(res["message"])
-
-        return r.content
-
-    def configure(self):
-        self.region = self.session.get("https://ipinfo.io/json").json()["country"]
-        if self.region != "US":
-            if self.region != "FR":
-                self.region = "INTL"
-
-            #self.device_cache_path = Path(self.get_cache("device_tokens_{profile}.json".format(
-            #profile=self.profile,
-            #)))
-
-            #if self.device_cache_path.exists():
-                #with open(self.device_cache_path, encoding="utf-8") as fd:
-                    #date = jsonpickle.decode(fd.read())  
-                #if "expiry" in date and datetime.fromisoformat(date["expiry"]) > datetime.now():
-                    #self.log.warning(" + Using cached device tokens")
-                    #cache = date
-                #else:
-                    #self.log.warning(" + Refreshing cookies")
-                    #self.device_cache_path.unlink()
-                    #if not self.credentials:
-                        #raise self.log.exit(" - No credentials provided, unable to log in.")
-                    #self.session.headers.update({"user-agent": self.config["Android"]["UserAgent"]})
-                    #self.session.params.update({"at": self.config[self.region]["at_token"]})
-                    #username = self.credentials.username
-                    #password = self.credentials.password
-                    #expiry = (datetime.now() + timedelta(minutes=3)).isoformat()
-                    #cookie = self.login(username=username, password=password)
-                    #cache = {"cookie": cookie, "expiry": expiry}
-                    #self.device_cache_path.parent.mkdir(exist_ok=True, parents=True)
-                    #with open(self.device_cache_path, "w", encoding="utf-8") as fd:
-                        #fd.write(jsonpickle.encode(cache))
-            #else:
-            if not self.credentials:
-                raise self.log.exit(" - No credentials provided, unable to log in.")
-            self.log.warning(" + Logging in")
-            self.session.headers.update({"user-agent": self.config["Android"]["UserAgent"]})
-            self.session.params.update({"at": self.config[self.region]["at_token"]})
-            username = self.credentials.username
-            password = self.credentials.password
-            #expiry = (datetime.now() + timedelta(minutes=3)).isoformat()
-            cookie = self.login(username=username, password=password)
-                #cache = {"cookie": cookie, "expiry": expiry}
-                #self.device_cache_path.parent.mkdir(exist_ok=True, parents=True)
-                #with open(self.device_cache_path, "w", encoding="utf-8") as fd:
-                    #fd.write(jsonpickle.encode(cache))
-            #cookie = cache["cookie"]
-            self.session.headers.update({"cookie": cookie})
-        else:
-            self.session.headers.update(
-                {
-                    "Origin": "https://www.paramountplus.com",
-                }
-            )
-            self.session.params.update({"at": self.config[self.region]["at_token"]})
-
-        #if not self.is_logged_in():
-            #raise ValueError("InvalidCookies")
-
-        #if not self.is_subscribed():
-            #raise ValueError("NotEntitled")
-
-    # Service specific functions
-
-    def get_prop(self, prop):
-        res = self.session.get("https://www.paramountplus.com")
-        prop_re = prop.replace(".", r"\.")
-        search = re.search(rf"{prop_re} ?= ?[\"']?([^\"';]+)", res.text)
-        if not search:
-            raise ValueError("InvalidCookies")
-
-        return search.group(1)
-
-    def is_logged_in(self):
-        return self.get_prop("CBS.UserAuthStatus") == "true"
-
-    def is_subscribed(self):
-        return self.get_prop("CBS.Registry.user.sub_status") == "SUBSCRIBER"
-    
-    def login(self, username, password):
-        login_params = {
-            "j_username": username,
-            "j_password": password
+    def license(self, challenge: bytes, title: Title, track, session_id, **_):
+        """Get license for the content."""
+        content_id = title.service_data.get("contentId") or title.service_data.get("content_id") or title.id
+        
+        if not content_id:
+            raise ValueError(" - No contentId found in title data.")
+        
+        # Get bearer token
+        token, license_url = self._get_drm_token(content_id)
+        
+        if not token:
+            raise self.log.exit(" - Could not get session token")
+        
+        if not license_url:
+            license_url = self.config.get("license_widevine", 
+                "https://cbsi.live.ott.irdeto.com/widevine/getlicense")
+        
+        params = self._get_params({
+            "CrmId": "cbsi",
+            "AccountId": "cbsi",
+            "SubContentType": "Default",
+            "ContentId": content_id,
+        })
+        
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/octet-stream",
         }
-
-        response = self.session.post(url=self.config[self.region]["login"], params=login_params)
-
-        status_response = self.session.get(url=self.config[self.region]["status"]).json()
-        self.log.debug(status_response)
-        if status_response["success"] == False:
-            raise ValueError("InvalidCredentials")
-        #if not status_response["userStatus"]["description"] == "SUBSCRIBER":
-            #raise ValueError("NotEntitled")
         
-        cookies = ";".join([f"{key}={value}" for key, value in response.cookies.get_dict().items()])
+        try:
+            response = self.client.post(license_url, params=params, headers=headers, content=challenge, timeout=30)
+            
+            if response.status_code != 200:
+                error_text = response.text[:500] if response.text else "No response body"
+                raise ValueError(f"License error ({response.status_code}): {error_text}")
+            
+            return response.content
+            
+        except httpx.TimeoutException:
+            raise self.log.exit(" - Timeout in license request")
+        except httpx.ConnectError as e:
+            raise self.log.exit(f" - Connection error in license: {e}")
+        except Exception as e:
+            raise self.log.exit(f" - License error: {e}")
 
-        return cookies
-    
-    def get_barrear(self, content_id):
-        #license_data = self.session.get(url="https://www.intl.paramountplus.com/apps-api/v3.0/androidphone/irdeto-control/session-token.json?contentId=%s&locale=en-us&at=ABATOpD5wXyjhjIMO0BaNh/gW0iCu0ISRy2U7/tyGiKZTQTlYDFL1NPD58CcuJLOQYY=" % (content_id)).json()
-        try:  
-            res = self.session.get(url=self.config[self.region]["barrearUrl"], params={"contentId": content_id})
-            res.raise_for_status()
-        except requests.HTTPError as e:
-            if e.response.status_code == 401:
-                self.log.warning("Received a 401 error, deleting cached cookies")
-                self.device_cache_path.unlink()
-                self.session.headers.clear()
-                self.session.params = {}
-                self.configure()
-                self.retrying = True
+    def _get_drm_token(self, content_id: str):
+        """Get DRM bearer token."""
+        barrear_url = self.region_config["endpoints"].get("barrearUrl")
         
-        res = res.json()
-
-        if not res["success"]:
-            raise self.log.exit("Unable to get license token: %s" % (res["errors"]))
-
-        #license_url = license_data["url"]
-        ls_session = res["ls_session"]
-
-        return ls_session
-
-    def parse_movie_year(self, url):
-        html_raw = self.session.get(url)
-
-        if html_raw.status_code != 200:
-            return None
-
-        self.year = int(
-            re.findall('"movie__air-year">[0-9]+<', html_raw.text)[0].replace('"movie__air-year">', "").replace("<", "")
-        )
-
-    def parse_show_id(self, url):
-        html_raw = self.session.get(url)
-
-        if html_raw.status_code != 200:
-            self.log.exit("Could not parse Show Id.")
-
-        show = json.loads('{"' + re.search('CBS.Registry.Show = {"(.*)"}', html_raw.text).group(1) + '"}')
-
-        return str(show["id"])
-
-    def get_session(self):
-        session = requests.Session()
-        session.mount("https://", HTTPAdapter(
-            max_retries=Retry(
-                total=5,
-                backoff_factor=1,
-                status_forcelist=[429, 500, 502, 503, 504],
-            )
-        ))
-        session.headers.update(config.headers)
-        session.cookies.update(self.cookies or {})
-        return session
+        if not barrear_url:
+            barrear_url = "https://www.paramountplus.com/apps-api/v3.1/xboxone/irdeto-control/anonymous-session-token.json"
+        
+        params = self._get_params({"contentId": content_id})
+        
+        response = self.client.get(barrear_url, params=params)
+        
+        if response.status_code != 200:
+            raise self.log.exit(f" - Failed to get DRM token: {response.status_code}")
+        
+        data = response.json()
+        
+        if not data.get("success"):
+            raise self.log.exit(f" - DRM token error: {data.get('message', 'Unknown error')}")
+        
+        return data.get("ls_session"), data.get("url")

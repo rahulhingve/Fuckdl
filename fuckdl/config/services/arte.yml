@@ -1,0 +1,4 @@
+# ARTE (https://www.arte.tv)
+# European cultural platform - FR/DE/EN/ES/IT/PL
+
+api_base: https://api.arte.tv/api/player/v2

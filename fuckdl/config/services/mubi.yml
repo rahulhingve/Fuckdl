@@ -1,11 +1,29 @@
 needs_auth: false
 
 endpoints:
+  # Authentication endpoints (legacy method)
   loginurl: 'https://api.mubi.com/v3/authentication/login'
-  authtok_url: 'https://api.mubi.com/v3/authentication/login/request' 
+  authtok_url: 'https://api.mubi.com/v3/authentication/login/request'
+  
+  # Metadata endpoints
   metadata: 'https://api.mubi.com/v3/films/{title_id}'
+  film_by_slug: 'https://api.mubi.com/v4/films/{slug}'
+  series: 'https://api.mubi.com/v4/series/{series_slug}'
+  season_episodes: 'https://api.mubi.com/v4/series/{series_slug}/seasons/{season_slug}/episodes/available'
+  reels: 'https://api.mubi.com/v4/films/{film_id}/reels'
+  
+  # Playback endpoints
   viewing: 'https://api.mubi.com/v3/films/{title_id}/viewing'
-  manifest: 'https://api.mubi.com/v3/films/{title_id}/viewing/secure_url'  
+  initiate_viewing: 'https://api.mubi.com/v4/films/{film_id}/viewing?parental_lock_enabled=true'
+  secure_url: 'https://api.mubi.com/v4/films/{film_id}/viewing/secure_url'
+  manifest: 'https://api.mubi.com/v3/films/{title_id}/viewing/secure_url'
+  
+  # Account endpoints (cookie method)
+  account: 'https://api.mubi.com/v4/account'
+  current_user: 'https://api.mubi.com/v4/current_user'
+  ip_geolocation: 'https://directory.cookieyes.com/api/v1/ip'
+  
+  # DRM License
   license: 'https://lic.drmtoday.com/license-proxy-widevine/cenc/'
 
 device:

@@ -37,6 +37,7 @@ class Vault:
         database=None,
         host=None,
         port=3306,
+        method="GET",
     ):
         from fuckdl.config import directories
 
@@ -46,6 +47,8 @@ class Vault:
             raise ValueError(f"Invalid vault type [{type_}]")
         self.name = name
         self.con = None
+        self.method = method.upper()
+        
         if self.type == Vault.Types.LOCAL:
             if not path:
                 raise ValueError("Local vault has no path specified")
@@ -59,17 +62,24 @@ class Vault:
                 db=database,
                 host=host,
                 port=port,
-                cursorclass=pymysql.cursors.DictCursor,  # TODO: Needed? Maybe use it on sqlite3 too?
+                cursorclass=pymysql.cursors.DictCursor,
             )
         elif self.type == Vault.Types.HTTP:
             self.url = host
             self.username = username
             self.password = password
+            if self.method not in ["GET", "POST"]:
+                log.warning(f"HTTP method not supported: {self.method}, using GET by default")
+                self.method = "GET"
         elif self.type == Vault.Types.HTTPAPI:
             self.url = host
             self.password = password
+            # Ensure URL ends with slash for DRMLab compatibility
+            if self.url and not self.url.endswith('/'):
+                self.url = self.url + '/'
         else:
             raise ValueError(f"Invalid vault type [{self.type.name}]")
+            
         self.ph = {
             self.Types.LOCAL: "?",
             self.Types.REMOTE: "%s",
@@ -151,17 +161,33 @@ class Vaults:
             self.create_table(vault, self.service, commit=True)
 
     def request(self, method, url, key, params=None):
-        r = requests.post(
-            url,
-            json={
-                "method": method,
-                "params": {
-                    **(params or {}),
-                    "session_id": self.api_session_id,
-                },
-                "token": key,
+        """
+        Make a JSON-RPC request to HTTPAPI vault (e.g., DRMLab)
+        """
+        # Ensure URL ends with slash for DRMLab compatibility
+        if not url.endswith('/'):
+            url = url + '/'
+        
+        # Build payload according to DRMLab format
+        payload = {
+            "method": method,
+            "params": {
+                **(params or {}),
+                "session_id": self.api_session_id,
             },
-        )
+            "token": key,
+        }
+        
+        # Remove None values from params for cleaner request
+        if payload["params"]:
+            payload["params"] = {k: v for k, v in payload["params"].items() if v is not None}
+        
+        log.debug(f"HTTPAPI Request: {method} to {url}")
+        
+        try:
+            r = requests.post(url, json=payload, timeout=30)
+        except requests.exceptions.RequestException as e:
+            raise ValueError(f"Request failed: {e}")
 
         if not r.ok:
             raise ValueError(f"API returned HTTP Error {r.status_code}: {r.reason.title()}")
@@ -171,35 +197,68 @@ class Vaults:
         except json.JSONDecodeError:
             raise ValueError(f"API returned an invalid response: {r.text}")
 
-        if res.get("status_code") != 200:
-            raise ValueError(f"API returned an error: {res['status_code']} - {res['message']}")
-
-        if session_id := res["message"].get("session_id"):
-            self.api_session_id = session_id
-
-        return res["message"]
+        # Handle DRMLab response format (status: "ok")
+        if res.get("status") == "ok":
+            return res.get("message", {})
+        # Handle legacy format (status_code: 200)
+        elif res.get("status_code") == 200:
+            return res.get("message", {})
+        else:
+            raise ValueError(f"API returned an error: {res}")
 
     def __iter__(self):
         return iter(self.vaults)
 
+    def _http_request(self, vault, method, **params):
+        """
+        Unified HTTP request handler for HTTP type vaults (not HTTPAPI)
+        Supports both GET and POST methods
+        """
+        try:
+            if vault.method == "GET":
+                response = requests.get(
+                    vault.url,
+                    params=params,
+                    timeout=30
+                )
+            else:  # POST
+                response = requests.post(
+                    vault.url,
+                    json=params,
+                    timeout=30
+                )
+            
+            if not response.ok:
+                log.error(f"HTTP {response.status_code} on {vault.name}: {response.reason}")
+                return None
+                
+            return response.json()
+            
+        except requests.exceptions.RequestException as e:
+            log.error(f"Connection error with {vault.name}: {e}")
+            return None
+
     def get(self, kid, title):
+        """
+        Get a key from vaults by KID
+        """
         for vault in self.vaults:
             if vault.type is Vault.Types.HTTP:
-                keys = requests.get(
-                    vault.url,
-                    params={
-                        "service": self.service,
-                        "username": vault.username,
-                        "password": vault.password,
-                        "kid": kid,
-                    },
-                ).json()
-
-                if keys["keys"]:
-                    return keys["keys"][0]["key"], vault
+                keys_data = self._http_request(
+                    vault,
+                    "get",
+                    service=self.service,
+                    username=vault.username,
+                    password=vault.password,
+                    kid=kid,
+                )
+                
+                if keys_data and keys_data.get("keys"):
+                    return keys_data["keys"][0]["key"], vault
+                    
             elif vault.type is Vault.Types.HTTPAPI:
                 try:
-                    keys = self.request(
+                    result = self.request(
                         "GetKey",
                         vault.url,
                         vault.password,
@@ -208,25 +267,29 @@ class Vaults:
                             "service": self.service,
                             "title": title,
                         },
-                    ).get("keys", [])
-                    return first_or_none(x["key"] for x in keys if x["kid"] == kid), vault
+                    )
+                    
+                    # Handle DRMLab response format
+                    keys = result.get("keys", [])
+                    if keys:
+                        # Try to find exact KID match
+                        for k in keys:
+                            if k.get("kid", "").lower() == kid.lower():
+                                return k.get("key"), vault
+                        # Return first key if no exact match
+                        return keys[0].get("key"), vault
+                    return None, None
+                    
                 except (Exception, SystemExit) as e:
-                    # TODO: We currently need to catch SystemExit because of log.exit, this should be refactored
                     log.debug(traceback.format_exc())
                     if not isinstance(e, SystemExit):
-                        log.error(f"Failed to get key ({e.__class__.__name__}: {e}")
-                    return None
+                        log.error(f"Failed to get key ({e.__class__.__name__}: {e})")
+                    return None, None
+                    
             else:
-                # Note on why it matches by KID instead of PSSH:
-                # Matching cache by pssh is not efficient. The PSSH can be made differently by all different
-                # clients for all different reasons, e.g. only having the init data, but the cached PSSH is
-                # a manually crafted PSSH, which may not match other clients manually crafted PSSH, and such.
-                # So it searches by KID instead for this reason, as the KID has no possibility of being different
-                # client to client other than capitalization. There is an unknown with KID matching, It's unknown
-                # for *sure* if the KIDs ever conflict or not with another bitrate/stream/title. I haven't seen
-                # this happen ever and neither has anyone I have asked.
+                # SQL vaults (LOCAL/REMOTE)
                 if not self.table_exists(vault, self.service):
-                    continue  # this service has no service table, so no keys, just skip
+                    continue
                 if not vault.ticket:
                     raise ValueError(
                         f"Vault {vault.name} does not have a valid ticket available."
@@ -328,41 +391,54 @@ class Vaults:
                 self.commit(vault)
 
     def insert_key(self, vault, table, kid, key, title, commit=False):
+        """
+        Insert a key into the vault
+        """
         if vault.type == Vault.Types.HTTP:
-            keys = requests.get(
-                        vault.url,
-                        params={
-                            "service": self.service,
-                            "username": vault.username,
-                            "password": vault.password,
-                            "kid": kid,
-                            "key": key,
-                            "title": title
-                        },
-                    ).json()
-            if keys["status_code"] == 200 and keys["inserted"]:
-                return InsertResult.SUCCESS
-            elif keys["status_code"] == 200:
-                return InsertResult.ALREADY_EXISTS
-            else:
-                return InsertResult.FAILURE
+            result_data = self._http_request(
+                vault,
+                "insert",
+                service=self.service,
+                username=vault.username,
+                password=vault.password,
+                kid=kid,
+                key=key,
+                title=title
+            )
+            
+            if result_data:
+                if result_data.get("status_code") == 200 and result_data.get("inserted"):
+                    return InsertResult.SUCCESS
+                elif result_data.get("status_code") == 200:
+                    return InsertResult.ALREADY_EXISTS
+            
+            return InsertResult.FAILURE
+            
         elif vault.type is Vault.Types.HTTPAPI:
-            res = self.request(
-                "InsertKey",
-                vault.url,
-                vault.password,
-                {
-                    "kid": kid,
-                    "key": key,
-                    "service": self.service,
-                    "title": title,
-                },
-            )["inserted"]
-            if res:
-                return InsertResult.SUCCESS
-       
-            else:
+            try:
+                result = self.request(
+                    "InsertKey",
+                    vault.url,
+                    vault.password,
+                    {
+                        "kid": kid,
+                        "key": key,
+                        "service": self.service,
+                        "title": title,
+                    },
+                )
+                
+                # Check if insertion was successful
+                if result.get("status") == "ok" or result.get("inserted"):
+                    return InsertResult.SUCCESS
+                else:
+                    return InsertResult.FAILURE
+                    
+            except Exception as e:
+                log.error(f"Failed to insert key into {vault.name}: {e}")
                 return InsertResult.FAILURE
+                
+        # SQL vaults (LOCAL/REMOTE)
         if not self.table_exists(vault, table):
             return InsertResult.FAILURE
         if not vault.ticket:

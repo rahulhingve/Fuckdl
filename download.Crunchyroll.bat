@@ -1,3 +1,3 @@
 @echo off
-poetry run fuckdl dl -sl en -al ja,en -w S01E01 CR https://www.crunchyroll.com/series/GYEXQKJG6/dr-stone
+poetry run fuckdl dl -al en,es-419,ja --no-cache -w S01E1 Crunchyroll GDKHZEJ0K
 pause

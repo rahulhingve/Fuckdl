@@ -1,0 +1,45 @@
+authpn: "amco"
+authpt: "12e4i8l6a581a"
+api_version: "v5.93"
+
+endpoints:
+  headerinfo: "https://mfwktabletandroid-api.clarovideo.net/services/user/startheaderinfo"
+  isloggedin: "https://mfwktabletandroid-api.clarovideo.net/services/user/v4/ott/isloggedin"
+  login_with_password: "https://mfwktabletandroid-api.clarovideo.net/services/user/v2/ott/login"
+  login_with_hash: "https://mfwktabletandroid-api.clarovideo.net/services/user/v2/ott/login"
+  profile_read: "https://mfwktabletandroid-api.clarovideo.net/services/user/profile/read"
+  controlpin: "https://mfwktabletandroid-api.clarovideo.net/services/user/controlpin/get"
+  superhighlight: "https://mfwktabletandroid-api.clarovideo.net/services/user/v1/superhighlight"
+  serie: "https://mfwktabletandroid-api.clarovideo.net/services/content/serie"
+  data: "https://mfwktabletandroid-api.clarovideo.net/services/content/data"
+  asset: "https://mfwktabletandroid-api.clarovideo.net/services/apa/asset"
+  metadata: "https://mfwktabletandroid-api.clarovideo.net/services/apa/metadata"
+  launcher: "https://mfwktabletandroid-api.clarovideo.net/services/apa/launcher"
+  payway: "https://mfwktabletandroid-api.clarovideo.net/services/payway/purchasebuttoninfo"
+  media: "https://mfwktabletandroid-api.clarovideo.net/services/player/getmedia"
+  recordings: "https://mfwktabletandroid-api.clarovideo.net/services/recordings/list"
+  favorited: "https://mfwktabletandroid-api.clarovideo.net/services/user/favorited"
+  reminder: "https://mfwktabletandroid-api.clarovideo.net/services/user/reminder/list"
+  certificate: "https://widevine-claromex-vod.clarovideo.net/v2/licenser/getcertificate"
+
+params:
+  android_base:
+    api_version: "v5.93"
+    authpn: "amco"
+    authpt: "12e4i8l6a581a"
+    format: "json"
+    device_manufacturer: "samsung"
+    device_model: "android"
+    device_category: "tablet"
+    device_type: "SM-T560"
+    
+  android_auth: {}
+  
+  payway_base:
+    api_version: "v5.93"
+    authpn: "amco"
+    authpt: "12e4i8l6a581a"
+    format: "json"
+    device_category: "tablet"
+    device_manufacturer: "samsung"
+    device_model: "android"

@@ -1,0 +1,16 @@
+endpoints:
+  # Authentication endpoints
+  anon-user: "https://vix.com/api/proxy/user/create-anon-user"
+  login: "https://identity-api.vix.com/v1/auth/token/reg-user/login"
+  refresh: "https://identity-api.vix.com/v1/auth/open/refresh-token"
+  
+  # API endpoints
+  graphql: "https://client-api.vix.com/gql/v2/"
+  token: "https://vix.com/api/video/token"
+  play: "https://nxs.mp.lura.live/v1/play/{play_id}"
+  
+  # Alternative/backup endpoints (if needed)
+  # manifest: "https://nxs.mp.lura.live/v1/play/{id}"
+
+# User agent for requests
+user-agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"

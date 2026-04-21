@@ -34,7 +34,6 @@ class MY5(BaseService):
     Known bugs:
         - The progress bar is broken for certain DASH manifests
           See issue: https://github.com/devine-dl/devine/issues/106
-
     """
 
     ALIASES = ["channel5", "ch5", "c5"]

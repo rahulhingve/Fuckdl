@@ -2,8 +2,8 @@ from uuid import UUID
 
 from Cryptodome.Random import get_random_bytes, random
 
-from fuckdl.utils.widevine.device import LocalDevice
-from fuckdl.utils.widevine.session import Session
+from .device import LocalDevice
+from .session import Session
 
 
 class Cdm:
@@ -28,7 +28,7 @@ class Cdm:
         self.sessions = {}
         self.device = device
 
-    def open(self, pssh, raw=False, offline=False, service_name=False):
+    def open(self, pssh, raw=False, offline=False, service_name=None):
         """
         Open a CDM session with the specified pssh box.
         Multiple sessions can be active at the same time.
@@ -37,6 +37,7 @@ class Cdm:
             pssh: PSSH Data, either a full WidevineCencHeader or a full mp4 pssh box.
             raw: If the PSSH Data is incomplete, e.g. NF Key Exchange, set this to True.
             offline: 'OFFLINE' License Type field value.
+            service_name: Optional service name for the license request.
 
         Returns:
             New Session ID.
@@ -64,10 +65,10 @@ class Cdm:
             raise ValueError(f"There's no session with the id [{session_id!r}]...")
         return self.device.set_service_certificate(self.sessions[session_id], certificate)
 
-    def get_license_challenge(self, session_id, service_name):
+    def get_license_challenge(self, session_id, service_name=None):
         if not self.is_session_open(session_id):
             raise ValueError(f"There's no session with the id [{session_id!r}]...")
-        return self.device.get_license_challenge(self.sessions[session_id], service_name)
+        return self.device.get_license_challenge(self.sessions[session_id], service_name or self.sessions[session_id].service_name)
 
     def parse_license(self, session_id, license_res):
         if not self.is_session_open(session_id):
@@ -89,7 +90,7 @@ class Cdm:
                 hex=random.getrandbits(64),
                 counter="01"  # counter, this resets regularly so it's fine to use 01
             )
-            session_id.ljust(32, "0")  # pad to 16 bytes (32 chars)
+            session_id = session_id.ljust(32, "0")  # pad to 16 bytes (32 chars)
             return session_id.encode("ascii")
         if device.type in [LocalDevice.Types.CHROME, LocalDevice.Types.PLAYREADY]:
             return get_random_bytes(16)

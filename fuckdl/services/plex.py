@@ -36,6 +36,12 @@ class Plex(BaseService):
     \b
     TODO:
         - Plex returns grouped playback data for series.
+
+    Added by @AnotherBigUserHere
+
+    Exclusive for Fuckdl
+
+    Copyright AnotherBigUserHere 2026
     """
 
     ALIASES = ["PLEX", "Plex"]
@@ -53,7 +59,10 @@ class Plex(BaseService):
         super().__init__(ctx)
         self.title = title
         self.cdm = ctx.obj.cdm
-        self.playready = self.cdm.device.type == LocalDevice.Types.PLAYREADY
+        cdm = self.cdm
+        self.playready = (hasattr(cdm, '__class__') and 'PlayReady' in cdm.__class__.__name__) or \
+                         (hasattr(cdm, 'device') and hasattr(cdm.device, 'type') and 
+                          cdm.device.type == LocalDevice.Types.PLAYREADY)
         self.drm_type = "playready" if self.playready else "widevine"
         self.auth_token = None
 

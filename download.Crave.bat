@@ -1,3 +1,3 @@
 @echo off
-poetry run fuckdl dl -al en -sl en -w s01e01 Crave https://www.crave.ca/en/tv-shows/the-big-bang-theory
+poetry run fuckdl dl --no-cache -al en,fr --proxy CA CRAV https://www.crave.ca/en/movie/willy-wonka-and-the-chocolate-factory-49592
 pause

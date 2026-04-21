@@ -25,6 +25,8 @@ class Stan(BaseService):
     \b
     Authorization: Cookies
     Security: UHD@L1, SD-FDH@L3 doesn't care about releases.
+
+    Added by default by @Mike
     """
 
     ALIASES = ["STAN"]
@@ -188,10 +190,10 @@ class Stan(BaseService):
                     cc="(cc)" in sub["name"].lower()
                 ))
 
-        # craft pssh with the key_id
-        # TODO: is doing this still necessary? since the code now tries grabbing PSSH from
-        #       the first chunk of data of the track, it might be available from that.
-        if self.cdm.device.type == LocalDevice.Types.PLAYREADY:
+        _is_playready = (hasattr(self.cdm, '__class__') and 'PlayReady' in self.cdm.__class__.__name__) or \
+                        (hasattr(self.cdm, 'device') and hasattr(self.cdm.device, 'type') and 
+                         self.cdm.device.type == LocalDevice.Types.PLAYREADY)
+        if _is_playready:
             for track in tracks:
                 track.needs_proxy = True
                 if isinstance(track, VideoTrack):

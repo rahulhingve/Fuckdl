@@ -1,3 +1,3 @@
 @echo off
-poetry run fuckdl dl -sl en -al en -w S01E1 Skyshowtime /tv/yellowstone/338b5346-a189-34a4-bfe2-df1ad18eccbd
+poetry run fuckdl dl -sl en -al en,es --no-cache --keys skyshowtime https://www.skyshowtime.com/watch/asset/movies/los-tipos-malos-2/28764a1d-04fe-3b7c-8137-683f68801984
 pause

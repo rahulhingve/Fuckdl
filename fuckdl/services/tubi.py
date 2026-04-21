@@ -42,6 +42,9 @@ class TUBI(BaseService):
         - Due to the structure of the DASH manifest and requests downloader failing to output progress,
           aria2c is used as the downloader no matter what downloader is specified in the config.
         - Search is currently disabled.
+
+    Added by default by @Mike
+
     """
     ALIASES = ["TUBI", "tubi", "tubitv", "TubiTV"]
     TITLE_RE = r"^(?:https?://(?:www\.)?tubitv\.com?)?/(?P<type>movies|series|tv-shows)/(?P<id>[a-z0-9-]+)"
@@ -196,7 +199,10 @@ class TUBI(BaseService):
     def license(self, challenge, **_):
         if not self.licenseurl:
             return None
-        if self.cdm.device.type == LocalDevice.Types.PLAYREADY:
+        _is_playready = (hasattr(self.cdm, '__class__') and 'PlayReady' in self.cdm.__class__.__name__) or \
+                        (hasattr(self.cdm, 'device') and hasattr(self.cdm.device, 'type') and 
+                         self.cdm.device.type == LocalDevice.Types.PLAYREADY)
+        if _is_playready:
             r = self.session.post(url=self.licenseurl, data=challenge)
             if r.status_code != 200:
                 raise ConnectionError(r.content)

@@ -1,8 +1,9 @@
 import urllib3
 import os
 import re
+import logging
 from copy import copy
-
+from typing import Any, Optional, Generator
 from fuckdl.services.BaseService import BaseService
 
 SERVICE_MAP = {}
@@ -19,11 +20,19 @@ for service in os.listdir(os.path.dirname(__file__)):
     with open(os.path.join(os.path.dirname(__file__), f"{service}.py"), encoding="utf-8") as fd:
         code = ""
         for line in fd.readlines():
-            # Fix applied here: Instead of just skipping imports, we replace them with 'pass'.
-            # This keeps the indentation valid if the import was inside a try/except block.
-            match = re.match(r"(\s*)(?:import(?! click)|from)\s", line)
+            # Only remove problematic imports that might cause issues with exec,
+            # but keep essential imports like threading.Lock
+            match = re.match(r"(\s*)(?:from\s+threading\s+import\s+Lock|import\s+threading)", line)
             if match:
-                code += match.group(1) + "pass\n"
+                # Keep threading imports
+                code += line
+                continue
+                
+            # Skip other imports to avoid issues, but don't replace with pass
+            # This keeps the code structure intact
+            match = re.match(r"(\s*)(?:import(?! click)|from)(?!.*threading)", line)
+            if match:
+                # Skip this line entirely (don't add to code)
                 continue
 
             code += line

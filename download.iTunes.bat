@@ -1,3 +1,3 @@
 @echo off
-poetry run fuckdl dl -al en -sl en iTunes -m https://tv.apple.com/tr/movie/sonic-the-hedgehog/umc.cmc.6gkyrgaoool7s2u24tratknbi
-pause
+poetry run fuckdl dl -al en -r SDR -q 1080 iTunes -m umc.cmc.2oqegem4gikqyn1r6djpwyae1
+pause 

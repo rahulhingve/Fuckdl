@@ -1,0 +1,8 @@
+endpoints:
+  manifest: https://api.viki.io/v5/playback_streams/{contentID}.json?drms=dt3&device_id={deviceID}&app=100531a&token={token}
+  movie_title: https://api.viki.io/v4/films/{contentID}.json?film_id={contentID}&app=100531a&token={token}
+  series_title: https://api.viki.io/v4/series/{contentID}/episodes.json?&page={page}&per_page=24&with_paging=true&app=100531a&token={token}
+  get_license_api: https://api.viki.io/v5/videos/{contentID}/drms.json?offline=false&stream_ids={stream_id}&dt=dt3&device_id={deviceID}&app=100531a&token={token}
+  login_code: https://api.viki.io/v5/devices.json?app=100531a
+  verify: https://api.viki.io/v5/devices/{code}.json?device_code={code}&type=androidtv&app=100531a
+  session_token: https://api.viki.io/v5/sessions.json?app=100531a

@@ -1,3 +1,5 @@
+# hulujp.yml - Configuración corregida
+
 certificate: |
   CAUSxwUKwQIIAxIQFwW5F8wSBIaLBjM6L3cqjBiCtIKSBSKOAjCCAQoCggEBAJntWzsyfateJO/DtiqVtZhSCtW8yzdQPgZFuBTYdrjfQFEEQa2M462xG7
   iMTnJaXkqeB5UpHVhYQCOn4a8OOKkSeTkwCGELbxWMh4x+Ib/7/up34QGeHleB6KRfRiY9FOYOgFioYHrc4E+shFexN6jWfM3rM3BdmDoh+07svUoQykd
@@ -9,44 +11,49 @@ certificate: |
   PwzvofcJOxkJkoMmMzcFBDopvab5tDQsyN9UPLGhGC98X/8z8QSQ+spbJTYLdgFenFoGq47gLwDS6NWYYQSqzE3Udf2W7pzk4ybyG4PHBYV3s4cyzdq8a
   mvtE/sNSdOKReuHpfQ=
 
-user_agent: 'Mozilla/5.0 (Linux; Android 7.1.2; AFTMM Build/NS6281; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/88.0.4324.152 Mobile Safari/537.36 jp.happyon.android/3.0.59'
-user_agent_browser: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.63 Safari/537.36'
-
-common_params:
-  app_id: 4
-  device_code: 7
-
-auth_params:
-  app_version: '3.0.59'
-  device_code: 7
-  device_manufacturer: 'Amazon'
-  device_model: 'AFTMM'
-  device_higher_category: 'settop'
-  device_lower_category: 'fire_tv'
-  is_mobile: 'true'
-  manufacturer: 'Amazon'
-  os_version: '7.1.2'
-  os_build_id: '25'
-  user_agent: ''
-
-meta_params:
-  expand_object_flag: 0
-  datasource: 'decorator'
-
-search_params:
-  limit: 999
-  page: 1
-  order: 'asc'
-  sort: 'sort:asc,id_in_schema:asc'
-  with_total_count: true
-
 endpoints:
-  get_user_info: 'https://mapi.prod.hjholdings.tv/api/v1/sessions/get_user_info'
-  metas: 'https://mapi.prod.hjholdings.tv/api/v1/metas/{id}'
-  metas_children: 'https://mapi.prod.hjholdings.tv/api/v1/metas/{id}/children'
-  playback_auth: 'https://papi.prod.hjholdings.tv/api/v1/playback/auth'
-  playback_medias: 'https://playback.prod.hjholdings.tv/session/open/v1/merchants/hulu/medias/{id}'
-  session_create: 'https://mapi.prod.hjholdings.tv/api/v1/sessions/create'
-  token_check: 'https://token.prod.hjholdings.tv/token/check'
-  user_auth: 'https://mapi.prod.hjholdings.tv/api/v1/users/auth'
-  web: 'https://www.hulu.jp/{slug}'
+  # Cookie authentication endpoints
+  cookies_token: "https://www.hulu.jp/api/user/token/refresh"
+  cookies_user: "https://www.hulu.jp/api/user/sync"
+  
+  # Session endpoints
+  create_session: "https://mapi.prod.hjholdings.tv/api/v1/sessions/create"
+  
+  # Authentication endpoints
+  credentials_login: "https://mapi.prod.hjholdings.tv/api/v1/users/auth"
+  auth_profile: "https://mapi.prod.hjholdings.tv/api/v1/gaia/auth/profile"
+  
+  # User endpoints
+  user_info: "https://mapi.prod.hjholdings.tv/api/v1/sessions/get_user_info"
+  user_profile: "https://mapi.prod.hjholdings.tv/api/v1/users/me"
+  
+  # Token endpoints
+  token_check: "https://token.prod.hjholdings.tv/token/check"
+  token_refresh: "https://token.prod.hjholdings.tv/token/refresh"
+  
+  # Metadata endpoints
+  metas: "https://mapi.prod.hjholdings.tv/api/v1/metas/{id}"
+  
+  # Playback endpoints
+  playback_auth: "https://papi.prod.hjholdings.tv/api/v1/playback/auth"
+  playback_media: "https://playback.prod.hjholdings.tv/session/open/v1/merchants/{service_id}/medias/{video_id}"
+  playback_close: "https://playback.prod.hjholdings.tv/session/close"
+
+device:
+  user_agent: "Mozilla/5.0 (Linux; Android 14; BRAVIA 4K GB Build/OPR2.170623.027.S32; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/146.0.7680.164 Mobile Safari/537.36"
+  user_agent_playback: "(Linux; Android 14; BRAVIA 4K GB Build/OPR2.170623.027.S32) Android StreaksPlayerSDK/3.0.0 HuluPlayer-Android"
+  user_agent_browser: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"
+  app_version: "3.27.0"
+  app_id: "5"
+  device_code: "8"
+  category_h: "android_tv"
+  category_l: "android_tv"
+  os_version: "14"
+  os_build_id: "34"
+  manufacturer: "Sony"
+  model: "BRAVIA 4K GB"
+  name: "BRAVIA_ATV2"
+
+preferences:
+  language: "ja"
+  manifest_log: "debug"

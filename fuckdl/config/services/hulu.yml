@@ -4,6 +4,7 @@ endpoints:
   movie: 'https://discover.hulu.com/content/v5/hubs/movie/{id}?limit=999&schema=9&referralHost=production'
   series: 'https://discover.hulu.com/content/v5/hubs/series/{id}?limit=999&schema=9&referralHost=production'
   season: 'https://discover.hulu.com/content/v5/hubs/series/{id}/season/{season}?limit=999&schema=9&referralHost=production'
+  manifest: 'https://play.hulu.com/v6/playlist'
 
 device:
   PC:

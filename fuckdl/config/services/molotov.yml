@@ -1,0 +1,38 @@
+molotov_agent:
+  app_id: "browser_app"
+  app_build: 4
+  app_version_name: "4.4.4"
+  browser_name: "unknown"
+  type: "desktop"
+  os_version: "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"
+  electron_version: "0.0.0"
+  os: "Win32"
+  manufacturer: ""
+  serial: "0446e6e1-acca-4483-9a82-972803b97b52"
+  model: "Chrome - Windows"
+  hasTouchbar: false
+  brand: "Windows NT 10.0; Win64; x64"
+  api_version: 8
+  features_supported:
+    - "social"
+    - "new_button_conversion"
+    - "paywall"
+    - "channel_separator"
+    - "empty_view_v2"
+    - "store_offer_v2"
+    - "player_mplus_teasing"
+    - "embedded_player"
+    - "channels_classification"
+    - "new-post-registration"
+    - "appstart-d0-full-image"
+    - "payment_v2"
+    - "armageddon"
+    - "user_favorite"
+    - "parental_control_v3"
+    - "emptyview_v2"
+    - "before_pay_periodicity_selection"
+    - "player_midrolls"
+    - "cookie_wall"
+    - "reverse_epg"
+  inner_app_version_name: "6.2.1"
+  qa: false

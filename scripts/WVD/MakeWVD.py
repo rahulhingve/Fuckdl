@@ -9,7 +9,7 @@ import sys
 from fuckdl.utils.widevine.device import LocalDevice
 
 """
-Code to convert common folder/file structure to a fuckdl WVD.
+Code to convert common folder/file structure to a widevine device (WVD).
 """
 
 parser = argparse.ArgumentParser()

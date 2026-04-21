@@ -1,480 +1,734 @@
-# fuckdl/services/youtube.py
-
-# Created on: 2024-01-01
-# Authors: Amorä¸¶Aprca
-# Final Version: 4.0 
-
 from __future__ import annotations
 
-import click
 import hashlib
-import re
 import json
 import base64
-from typing import Any
-from datetime import datetime
-from urllib.parse import urlparse, parse_qs
-import xml.etree.ElementTree as ET
+import random
+import re
+import string
+import time
+import os
+from hashlib import md5
+from urllib.parse import parse_qs, unquote, urlparse
+from typing import Optional, Any
+from datetime import datetime, timedelta
 
+import click
+import requests
 from bs4 import BeautifulSoup
-from fuckdl.utils import try_get
+from langcodes import Language
 
-from fuckdl.objects import Title, Tracks, TextTrack
+from fuckdl.objects import AudioTrack, TextTrack, Title, Tracks, Track, VideoTrack
 from fuckdl.services.BaseService import BaseService
+from fuckdl.utils.widevine.device import LocalDevice
+
 
 class YouTube(BaseService):
     """
-    Service code for YouTube VOD (https://youtube.com)
+    Service code for YouTube Platform Service (https://youtube.com).
+
+    Original Author: CodeName393
+
+    Structure system: Huvog
+
+    Ported by @AnotherBigUserHere to VT
     
-    \b
-    Authorization: Cookies
-    Robustness:
-      Widevine:
-        L3: Up to 1080p
+    Added by @AnotherBigUserHere
+
+    Exclusive for Fuckdl
+
+    Copyright AnotherBigUserHere 2026
 
     \b
-    Example (Single Video/watch):
-    fuckdl dl youtube dQw4w9WgXcQ
-    
-    \b
-    Example (Show/Series):
-    fuckdl dl youtube https://www.youtube.com/show/SCguuq8upmH1TmPhSI3nqYqg
-    
-    \b
-    Example (Show/Series with specific season):
-    fuckdl dl youtube "https://www.youtube.com/show/SCfgsEfVI3WMNeynOVuBwghw?season=6"
-    
-    \b
-    Example (Show/Series with specific season):
-    Can only use -W S01E0X-S01E0X
-    fuckdl dl -w S01E01-S01E03 youtube "https://www.youtube.com/show/SCfgsEfVI3WMNeynOVuBwghw?season=6"
+    Authorization: OAuth Token (Device Flow) with caching
+    Security:
+        Widevine: L1/L3 for UHD/SD content
+        PlayReady: SL3/SL2 for UHD/FHD content
     """
+    
+    ALIASES = ["YT", "YTTV", "YouTube"]
 
-    ALIASES = ["YouTube", "youtube", "yt", "ytbe"] 
-    TITLE_RE = r"^(?:https?://(?:www\.)?youtube\.com/(?:watch\?v=|show/))?(?P<id>[\w\-]+)"
+    TITLE_RE = (
+        r"^(?:https?://)?(?:www\.|m\.)?(?:youtube\.com/watch\?.*v=|youtu\.be/|youtube\.com/shorts/)(?P<id>[a-zA-Z0-9_-]{11})(?:[&?].*)?$",
+        r"^(?:https?://)?(?:www\.)?youtube\.com/show/(?P<id>SC[a-zA-Z0-9_-]+)",
+        r"^(?P<id>[a-zA-Z0-9_-]{11})$",
+        r"^(?P<id>SC[a-zA-Z0-9_-]+)$",
+    )
 
-    # Constants
-    YOUTUBE_PLAYER_URL: str = 'https://www.youtube.com/youtubei/v1/player'
-    LICENSE_SERVER_URL: str = 'https://www.youtube.com/youtubei/v1/player/get_drm_license'
-    API_KEY: str = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8'
+    VIDEO_CODEC_MAP = {
+        "H264": ["avc1", "h264"],
+        "H265": ["hvc1", "hev1", "dvh1"],
+        "AV1": ["av1", "av01"],
+        "VP9": ["vp9", "vp09"],
+    }
+
+    AUDIO_CODEC_MAP = {
+        "AAC": "mp4a",
+        "AC3": "ac-3",
+        "EC3": "ec-3",
+        "DTS": "dtse",
+        "OPUS": "opus",
+    }
 
     @staticmethod
-    @click.command(name="YouTube", short_help="https://youtube.com", help=__doc__)
-    @click.argument("title", type=str, required=True)
+    @click.command(name="YouTube", short_help="https://youtube.com")
+    @click.argument("title", type=str, required=False)
+    @click.option("-ag", "--auto-generated", is_flag=True, default=False, help="Get auto generated subtitles too.")
+    @click.option("-b", "--bitrate", default="CBR", 
+                type=click.Choice(["VBR", "CBR", "VBR+CBR"], case_sensitive=False),
+                help="Video bitrate mode for VP9, defaults to CBR.",
+    )
     @click.pass_context
     def cli(ctx, **kwargs):
         return YouTube(ctx, **kwargs)
 
-    def __init__(self, ctx, title):
+    def __init__(self, ctx, title, bitrate, auto_generated):
         super().__init__(ctx)
-        self.full_input_title = title
-        self.parsed_title = self.parse_title(ctx, title)
-        self.title_id = self.parsed_title.get("id") or title
-        self.is_show = "/show/" in self.full_input_title or self.title_id.startswith("SC")
-        self.context_data: dict[str, Any] = {}
-        self.page_data: dict[str, Any] = {}
 
-    def _initialize_context_and_page_data(self):
-        if self.context_data:
-            return
+        self.title = title
+        self.bitrate = bitrate
+        self.auto_generated = auto_generated
 
-        self.log.info("Initializing YouTube API context...")
+        self.verbose = False
+        self.debug = ctx.parent.params["debug"]
+        self.list = ctx.parent.params["list_"]
+        self.vcodec = ctx.parent.params["vcodec"] or "H264"
+        self.acodec = ctx.parent.params["acodec"]
+        self.scodec = "VTT"
+        self.vquality = ctx.parent.params.get("vquality") or 1080
+        self.range = ctx.parent.params.get("range_") or "SDR"
         
-        if "youtube.com" in self.full_input_title:
-            scrape_url = self.full_input_title
+        # Store content keys
+        self._content_keys = {}
+        
+        # Authentication tokens
+        self.access_token: Optional[str] = None
+        self.refresh_token: Optional[str] = None
+        self.token_expires_at: Optional[float] = None
+        self.ytcfg_tokens: dict[str, Any] = {}
+        
+        # DRM type detection
+        if hasattr(ctx.obj.cdm, 'device') and hasattr(ctx.obj.cdm.device, 'type'):
+            self.playready = ctx.obj.cdm.device.type == LocalDevice.Types.PLAYREADY
         else:
-            scrape_url = f'https://www.youtube.com/show/{self.title_id}' if self.is_show else f'https://www.youtube.com/watch?v={self.title_id}'
+            try:
+                self.playready = getattr(ctx.obj.cdm, 'type', '') == LocalDevice.Types.PLAYREADY
+            except:
+                self.playready = False
+
+        # Parse title ID
+        self.title_id = self.title
+        for pattern in self.TITLE_RE:
+            match = re.match(pattern, self.title)
+            if match:
+                self.title_id = match.group("id")
+                break
+
+        self.is_show = self.title_id.startswith("SC")
+        self.is_playlist = False
         
-        self.log.info(f"Scraping YouTube page for initial data: {scrape_url}")
-        response = self.session.get(scrape_url)
-        soup = BeautifulSoup(response.text, 'html.parser')
+        if "list" in self.title:
+            self.is_playlist = True
+            up = urlparse(self.title)
+            query_parsed = parse_qs(up.query)
+            if "list" in query_parsed:
+                self.playlist_id = query_parsed["list"][0]
 
-        ytcfg_set_content = {}
-        yt_initial_data = {}
-        yt_player_response = {} # [NEW] Capture player response from web
+        # Authenticate
+        self._authenticate()
+        self.configure()
 
-        for script in soup.find_all('script'):
-            if not script.string: continue
+    def _get_cache_path(self) -> str:
+        """Get path for token cache file"""
+        cache_dir = self.get_cache("")
+        os.makedirs(cache_dir, exist_ok=True)
+        return os.path.join(cache_dir, "tokens.json")
+
+    def _load_cached_tokens(self) -> Optional[dict]:
+        """Load tokens from cache if valid"""
+        cache_path = self._get_cache_path()
+        
+        if not os.path.exists(cache_path):
+            return None
+        
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
             
-            # Scrape ytInitialData
-            if 'var ytInitialData = ' in script.string:
-                match = re.search(r'var ytInitialData = ({.*?});', script.string, re.DOTALL)
-                if match:
-                    try: yt_initial_data = json.loads(match.group(1));
-                    except json.JSONDecodeError: self.log.debug("Found ytInitialData but failed to parse JSON.")
+            # Check if token is still valid (with 5 min buffer)
+            if data.get("expires_at", 0) > time.time() + 300:
+                self.log.info(" + Using cached tokens...")
+                return data
+            else:
+                self.log.debug("Cached token expired")
+                return None
+        except Exception as e:
+            self.log.debug(f"Failed to load cached tokens: {e}")
+            return None
 
-            if 'var ytInitialPlayerResponse = ' in script.string:
-                match = re.search(r'var ytInitialPlayerResponse = ({.*?});', script.string, re.DOTALL)
-                if match:
-                    try: yt_player_response = json.loads(match.group(1))
-                    except json.JSONDecodeError: self.log.debug("Found ytInitialPlayerResponse but failed to parse JSON.")
+    def _save_tokens_to_cache(self, token_data: dict, expires_in: int) -> None:
+        """Save tokens to cache"""
+        cache_path = self._get_cache_path()
+        
+        token_data["expires_at"] = time.time() + expires_in - 300  # 5 min buffer
+        
+        try:
+            with open(cache_path, 'w', encoding='utf-8') as f:
+                json.dump(token_data, f, indent=2)
+            self.log.debug("Tokens saved to cache")
+        except Exception as e:
+            self.log.debug(f"Failed to save tokens: {e}")
 
-            # Scrape ytcfg
-            if 'ytcfg.set' in script.string:
-                match = re.search(r'ytcfg\.set\s*\(\s*({.*?})\s*\)\s*;', script.string, re.DOTALL)
-                if match:
-                    try: ytcfg_set_content = json.loads(match.group(1))
-                    except json.JSONDecodeError: self.log.debug("Found ytcfg.set but failed to parse JSON.")
-
-        if not ytcfg_set_content: self.log.exit(" - Failed to extract ytcfg. Cannot proceed.")
-        if self.is_show and not yt_initial_data: self.log.exit(" - Failed to extract ytInitialData for show page. Cannot proceed.")
+    def _authenticate(self) -> None:
+        """Authenticate using OAuth device flow with caching"""
+        self.log.info("Logging into YouTube...")
         
-        self.page_data['ytcfg'] = ytcfg_set_content
-        self.page_data['ytInitialData'] = yt_initial_data
-        self.page_data['ytInitialPlayerResponse'] = yt_player_response # [NEW] Store it
-
-        client_context_data = try_get(ytcfg_set_content, lambda x: x['INNERTUBE_CONTEXT']['client']) or {}
+        # Try to load from cache
+        cached = self._load_cached_tokens()
         
-        forced_user_agent = "Mozilla/5.0 (Linux; Tizen 2.3) AppleWebKit/538.1 (KHTML, like Gecko)Version/2.3 TV Safari/538.1"
-        
-        client_version = client_context_data.get('clientVersion', "2.20240502.01.00")
-        id_token = ytcfg_set_content.get("ID_TOKEN")
-        visitor_data = client_context_data.get("visitorData")
-        session_index = ytcfg_set_content.get("SESSION_INDEX")
-
-        cookies_d = {c.name: c.value for c in self.cookies}
-        sapisid = cookies_d.get('__Secure-3PAPISID', cookies_d.get('SAPISID', ''))
-        if not sapisid: self.log.warning("Could not find SAPISID cookie. Auth may fail.")
-        
-        epoch = str(int(datetime.now().timestamp()))
-        origin = "https://www.youtube.com"
-        sapisid_data = f"{epoch} {sapisid} {origin}"
-        sha1 = hashlib.sha1(sapisid_data.encode('utf-8'))
-        sapisidhash = f"SAPISIDHASH {epoch}_{sha1.hexdigest()}"
-
-        api_headers = {
-            'authorization': sapisidhash,
-            'origin': origin,
-            'user-agent': forced_user_agent,
-            'x-youtube-client-version': client_version,
-            'x-youtube-client-name': '2'
-        }
-        if id_token: api_headers['X-Youtube-Identity-Token'] = id_token
-        if session_index: api_headers['x-goog-authuser'] = str(session_index)
-        if visitor_data: api_headers['x-goog-visitor-id'] = visitor_data
-        
-        self.session.headers.update(api_headers)
-
-        self.context_data['api_headers'] = api_headers
-        self.context_data['client_info'] = {
-            "clientName": "TVHTML5",
-            "clientVersion": "7.20230803.00.00",
-            "osName": "Tizen",
-            "osVersion": "2.3",
-            "platform": "TV",
-            "remoteHost": "192.168.1.100",
-            "visitorData": visitor_data,
-            "userAgent": forced_user_agent,
-        }
-        if session_index: self.context_data['session_id'] = session_index
-
-    def _create_context_payload(self, video_id: str) -> dict:
-        """Creates the JSON payload for the player API request, using a forced TV context."""
-        context_payload = {
-            'context': {
-                'client': self.context_data['client_info'],
-                'playbackContext': {
-                    'contentPlaybackContext': {
-                        "currentUrl": f"/watch?v={video_id}",
-                        "vis": 0,
-                        "splay": False,
-                        "autoCaptionsDefaultOn": False,
-                        "autonavState": "STATE_OFF",
-                        "html5Preference": "HTML5_PREF_SECURE_EXTRA_CODECS",
-                        'lactMilliseconds': "15000"
-                    }
-                },
-                'thirdParty': {'embedUrl': 'https://www.youtube.com/'}
-            },
-            'videoId': video_id,
-            'racyCheckOk': True,
-            'contentCheckOk': True
-        }
-        return context_payload
-
-    def _get_show_titles(self) -> list[Title]:
-        self.log.info("Processing as a YouTube Show...")
-        self._initialize_context_and_page_data()
-        
-        initial_data = self.page_data['ytInitialData']
-        
-        show_name = try_get(initial_data, lambda x: x['sidebar']['playlistSidebarRenderer']['items'][0]['playlistSidebarPrimaryInfoRenderer']['title']['simpleText'])
-        if not show_name:
-            show_name = try_get(initial_data, lambda x: x['metadata']['showMetadataRenderer']['title']['simpleText'])
-        if not show_name:
-            show_name = try_get(initial_data, lambda x: x['header']['pageHeaderRenderer']['title']['simpleText'])
-        
-        if not show_name: self.log.exit(" - Could not determine show name from any known paths.")
-
-        tabs = try_get(initial_data, lambda x: x['contents']['twoColumnBrowseResultsRenderer']['tabs'])
-        if not tabs: self.log.exit(" - Could not find tabs in page data (ytInitialData). Structure may have changed.")
-        
-        titles = []
-        
-        content_renderers = try_get(tabs[0], lambda x: x['tabRenderer']['content']['sectionListRenderer']['contents'])
-        if not content_renderers: self.log.exit(" - Could not find content renderers. Structure may have changed.")
-        
-        season_number = 1 
-        
-        for renderer in content_renderers:
-            item_section = renderer.get('itemSectionRenderer', {})
+        if cached:
+            self.access_token = cached.get("access_token")
+            self.refresh_token = cached.get("refresh_token")
+            self.token_expires_at = cached.get("expires_at")
             
-            metadata_renderer = try_get(item_section, lambda x: x['contents'][0]['playlistShowMetadataRenderer'])
-            if metadata_renderer:
-                season_title = try_get(metadata_renderer, lambda x: x['collection']['sortFilterSubMenuRenderer']['subMenuItems'][0]['title'])
-                season_match = re.search(r'(\d+)', season_title or "")
-                if season_match:
-                    season_number = int(season_match.group(1))
-
-            video_list_renderer = try_get(item_section, lambda x: x['contents'][0]['playlistVideoListRenderer'])
-            if video_list_renderer:
-                episodes = video_list_renderer.get('contents', [])
-                for episode_data in episodes:
-                    video_renderer = episode_data.get('playlistVideoRenderer')
-                    if not video_renderer: continue
-                    
-                    video_id = video_renderer.get('videoId')
-                    episode_title = try_get(video_renderer, lambda x: x['title']['runs'][0]['text'])
-                    episode_number_str = try_get(video_renderer, lambda x: x['index']['simpleText'])
-                    
-                    if not video_id or not episode_number_str: continue
-
-                    try: episode_number = int(episode_number_str)
-                    except (ValueError, TypeError):
-                        self.log.warning(f"Could not parse episode number for video {video_id}. Skipping.")
-                        continue
-
-                    titles.append(Title(
-                        id_=video_id, type_=Title.Types.TV, name=show_name,
-                        season=season_number, episode=episode_number, episode_name=episode_title,
-                        source=self.ALIASES[0]
-                    ))
+            # Try to refresh if needed
+            if self.token_expires_at and self.token_expires_at <= time.time() + 300:
+                if self._refresh_access_token():
+                    return
+            
+            if self.access_token:
+                self.log.info(" + Authentication successful using cached token")
+                return
         
-        if not titles: self.log.exit(" - No episodes found for this show. The URL might be for a specific season not on this page.")
-        return titles
+        # Need new token
+        self._perform_device_flow()
 
-    def _get_single_video_title(self) -> list[Title]:
-        self.log.info("Processing as a single YouTube video...")
-        self._initialize_context_and_page_data()
+    def _refresh_access_token(self) -> bool:
+        """Refresh access token using refresh token"""
+        if not self.refresh_token:
+            return False
         
-        context_payload = self._create_context_payload(self.title_id)
+        self.log.info(" + Refreshing access token...")
+        
+        headers = {
+            "User-Agent": self.config["device"]["user_agent"],
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
+        
+        form_data = {
+            "client_id": self.config["device"]["vr"]["client_id"],
+            "client_secret": self.config["device"]["vr"]["client_secret"],
+            "refresh_token": self.refresh_token,
+            "grant_type": "refresh_token",
+        }
+        
+        try:
+            res = self.session.post(
+                self.config["endpoints"]["token"],
+                headers=headers,
+                data=form_data
+            )
+            res.raise_for_status()
+            data = res.json()
+            
+            self.access_token = data["access_token"]
+            self.token_expires_at = time.time() + data.get("expires_in", 3600)
+            
+            # Save updated tokens
+            token_record = {
+                "access_token": self.access_token,
+                "refresh_token": self.refresh_token,
+                "expires_in": data.get("expires_in", 3600),
+            }
+            self._save_tokens_to_cache(token_record, data.get("expires_in", 3600))
+            
+            self.log.info(" + Token refreshed successfully")
+            return True
+        except Exception as e:
+            self.log.warning(f" - Token refresh failed: {e}")
+            return False
 
-        self.log.info("Fetching video info from YouTube API (with TV context)...")
-        response = self.session.post(
-            f"{self.YOUTUBE_PLAYER_URL}?key={self.API_KEY}", 
-            json=context_payload
+    def _perform_device_flow(self) -> None:
+        """Perform OAuth device flow authentication"""
+        device_code_data = self._request_device_code()
+        verification_url = device_code_data.get("verification_url") or device_code_data.get("verification_uri")
+        user_code = device_code_data["user_code"]
+        device_code = device_code_data.get("device_code")
+        interval = int(device_code_data.get("interval", 5))
+
+        self.log.info(f"Open this URL: {verification_url}")
+        self.log.info(f"Enter code: {user_code}")
+        self.log.info("Authorize the requested Google account and approve access.")
+        self.log.info("Waiting for authorization...")
+
+        max_attempts = 180  # 15 minutes max
+        attempts = 0
+        
+        while self.access_token is None and attempts < max_attempts:
+            try:
+                token_data = self._get_token(device_code)
+                
+                self.access_token = token_data["access_token"]
+                self.refresh_token = token_data.get("refresh_token")
+                expires_in = token_data.get("expires_in", 3600)
+                self.token_expires_at = time.time() + expires_in
+                
+                token_record = {
+                    "access_token": self.access_token,
+                    "refresh_token": self.refresh_token,
+                    "expires_in": expires_in,
+                }
+                self._save_tokens_to_cache(token_record, expires_in)
+                
+                self.log.info(" + Authentication successful!")
+                return
+            except requests.HTTPError as e:
+                if e.response.status_code == 428:  # Authorization pending
+                    attempts += 1
+                    time.sleep(interval)
+                    continue
+                raise
+            except Exception as e:
+                if "authorization_pending" in str(e):
+                    attempts += 1
+                    time.sleep(interval)
+                    continue
+                raise
+        
+        if not self.access_token:
+            raise self.log.exit("Authentication timeout. Please try again.")
+
+    def _request_device_code(self) -> dict:
+        """Request device code from Google OAuth"""
+        headers = {
+            "User-Agent": self.config["device"]["user_agent"],
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
+        form_data = {
+            "client_id": self.config["device"]["vr"]["client_id"],
+            "scope": "https://www.googleapis.com/auth/youtube",
+        }
+        res = self.session.post(
+            self.config["endpoints"]["device_code"],
+            headers=headers,
+            data=form_data
         )
-        response.raise_for_status()
-        video_info = response.json()
+        res.raise_for_status()
+        return res.json()
 
-        if video_info.get('playabilityStatus', {}).get('status') != "OK":
-            reason = video_info.get('playabilityStatus', {}).get('reason', 'Unknown reason')
-            self.log.exit(f" - This video is not playable: {reason}")
-        
-        video_title = try_get(video_info, lambda x: x['videoDetails']['title'])
-        
-        if not video_title:
-            # Fallback 1: Microformat from API
-            video_title = try_get(video_info, lambda x: x['microformat']['playerMicroformatRenderer']['title']['simpleText'])
-        
-        if not video_title:
-            # Fallback 2: Web Scraped Data (ytInitialPlayerResponse) - Matches your provided JSON
-            web_response = self.page_data.get('ytInitialPlayerResponse', {})
-            video_title = try_get(web_response, lambda x: x['videoDetails']['title'])
-            if video_title:
-                self.log.info(f"Found title in Web metadata: {video_title}")
+    def _get_token(self, device_code: str) -> dict:
+        """Get access token using device code"""
+        headers = {
+            "User-Agent": self.config["device"]["user_agent"],
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
+        form_data = {
+            "client_id": self.config["device"]["vr"]["client_id"],
+            "client_secret": self.config["device"]["vr"]["client_secret"],
+            "device_code": device_code,
+            "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+        }
+        res = self.session.post(
+            self.config["endpoints"]["token"],
+            headers=headers,
+            data=form_data
+        )
+        res.raise_for_status()
+        return res.json()
 
-        if not video_title:
-            self.log.warning(" - Could not find video title in API or Web Metadata. Using video ID as a fallback.")
-            video_title = self.title_id
-        
-        service_data = self.context_data.copy()
-        service_data['video_info'] = video_info
-
-        return [Title(
-            id_=self.title_id, type_=Title.Types.MOVIE, name=video_title,
-            source=self.ALIASES[0], service_data=service_data
-        )]
-
-    def get_titles(self) -> list[Title]:
+    def get_titles(self):
+        """Get title information"""
         if self.is_show:
             return self._get_show_titles()
-        else:
-            return self._get_single_video_title()
+        elif self.is_playlist:
+            return self.get_titles_from_playlist()
 
-    def _iso_to_seconds(self, duration: str) -> float:
-        """Converts an ISO 8601 duration string (e.g., 'PT1H2M3.4S') to seconds."""
-        if not duration or not duration.startswith('PT'):
-            return 0
-        seconds = 0.0
-        time_part = duration[2:]
+        player_response = self._fetch_player_data(self.title_id)
         
-        hours_match = re.search(r'(\d+(?:\.\d+)?)H', time_part)
-        if hours_match:
-            seconds += float(hours_match.group(1)) * 3600
-        
-        minutes_match = re.search(r'(\d+(?:\.\d+)?)M', time_part)
-        if minutes_match:
-            seconds += float(minutes_match.group(1)) * 60
-            
-        seconds_match = re.search(r'(\d+(?:\.\d+)?)S', time_part)
-        if seconds_match:
-            seconds += float(seconds_match.group(1))
+        if not player_response:
+            raise self.log.exit("Unable to get metadata. Is the title ID correct?")
 
-        return seconds
-
-    def _get_subtitles(self, video_info: dict) -> list[TextTrack]:
-        subtitles = []
-        
-        caption_tracks = try_get(video_info, lambda x: x['captions']['playerCaptionsTracklistRenderer']['captionTracks'])
-        
-        if not caption_tracks:
-            web_response = self.page_data.get('ytInitialPlayerResponse', {})
-            caption_tracks = try_get(web_response, lambda x: x['captions']['playerCaptionsTracklistRenderer']['captionTracks'])
-
-        if not caption_tracks:
-            self.log.info("No captions found in player response.")
-            return subtitles
-
-        for track in caption_tracks:
-            base_url = track.get('baseUrl')
-            if not base_url: continue
-            
-            name_simple = try_get(track, lambda x: x['name']['simpleText']) or "Unknown"
-            language_code = track.get('languageCode', 'und')
-            vss_id = track.get('vssId', '')
-            is_auto = 'a.' in vss_id or track.get('kind') == 'asr' # Auto-generated
-            
-            if 'fmt=' not in base_url:
-                base_url += '&fmt=vtt'
-            
-            sub_track = TextTrack(
-                id_=f"{self.title_id}_{language_code}_{'auto' if is_auto else 'sub'}",
-                source=self.ALIASES[0],
-                url=base_url,
-                codec="vtt",
-                language=language_code,
-                sdh=False,
-                forced=False,
-                note=f"{name_simple} ({'Auto' if is_auto else 'Manual'})"
-            )
-
-            sub_track.is_original_lang = not is_auto
-            
-            subtitles.append(sub_track)
-            
-        self.log.info(f"Found {len(subtitles)} subtitle tracks.")
-        return subtitles
-
-    def get_tracks(self, title: Title) -> Tracks:
-        self._initialize_context_and_page_data() 
-        
-        if 'video_info' not in title.service_data:
-            self.log.info(f"Fetching video info for S{title.season:02}E{title.episode:02} (with TV context)...")
-            
-            context_payload = self._create_context_payload(title.id)
-
-            response = self.session.post(
-                f"{self.YOUTUBE_PLAYER_URL}?key={self.API_KEY}", 
-                json=context_payload
-            )
-            response.raise_for_status()
-            video_info = response.json()
-            
-            title.service_data.update(self.context_data)
-            title.service_data['video_info'] = video_info
-        else:
-            video_info = title.service_data['video_info']
-
-        if video_info.get('playabilityStatus', {}).get('status') != "OK":
-            reason = video_info.get('playabilityStatus', {}).get('reason', 'Unknown reason')
-            self.log.warning(f" - This episode is not playable: {reason}")
-            return Tracks()
-            
-        dash_manifest_url = video_info.get('streamingData', {}).get('dashManifestUrl')
-        if not dash_manifest_url: self.log.exit(" - No DASH manifest found.")
-        
-        final_manifest_data = None
-        if video_info.get("adPlacements"):
-            self.log.info("Ad placements detected, filtering manifest for main content...")
+        try:
+            video_id = player_response["videoDetails"]["videoId"]
+            title_name = player_response["videoDetails"]["title"]
+        except KeyError:
             try:
-                manifest_text = self.session.get(dash_manifest_url).text
-                
-                ns = {'mpd': 'urn:mpeg:dash:schema:mpd:2011'}
-                root = ET.fromstring(manifest_text)
-                
-                periods = root.findall('mpd:Period', ns)
-                
-                if len(periods) > 1:
-                    main_content_period = None
-                    max_duration = -1
-
-                    for period in periods:
-                        duration_str = period.get('duration')
-                        duration_sec = self._iso_to_seconds(duration_str)
-                        if duration_sec > max_duration:
-                            max_duration = duration_sec
-                            main_content_period = period
-
-                    if main_content_period is not None:
-                        self.log.info(f"Found {len(periods)} periods. Selecting main content (duration: {max_duration}s).")
-                        for period in periods:
-                            if period is not main_content_period:
-                                root.remove(period)
-                        final_manifest_data = ET.tostring(root, encoding='unicode')
-                    else:
-                        self.log.warning(" - Could not determine main content period, using original manifest.")
-                else:
-                    self.log.info("Only one period found in manifest, no filtering needed.")
-
-            except Exception as e:
-                self.log.warning(f" - Failed to filter ads from manifest, using original. Reason: {e}")
-        else:
-            self.log.info("No ad placements found in video info.")
+                error = player_response["playabilityStatus"]["reason"]
+                raise self.log.exit(f"Couldn't obtain video information: {error}")
+            except KeyError:
+                self.log.exit(f"Failed to get video information: {player_response}")
         
-        self.log.info("Parsing DASH manifest...")
-        tracks = Tracks.from_mpd(
-            url=dash_manifest_url, 
-            data=final_manifest_data,
-            session=self.session, 
-            source=self.ALIASES[0]
+        year = None
+        if player_response.get("microformat"):
+            microformat = player_response["microformat"].get("playerMicroformatRenderer", {})
+            publish_date = microformat.get("publishDate")
+            if publish_date:
+                year = publish_date[:4]
+        
+        return Title(
+            id_=video_id,
+            type_=Title.Types.MOVIE,
+            name=title_name,
+            year=year,
+            original_lang="en",
+            source=self.ALIASES[0],
+            service_data=player_response
         )
+
+    def get_tracks(self, title):
+        """Get tracks for a title with proper DRM detection"""
+        if "streamingData" not in title.service_data:
+            title.service_data = self._fetch_player_data(title.id)
         
-        subtitle_tracks = self._get_subtitles(video_info)
-        tracks.add(subtitle_tracks)
+        streaming_data = title.service_data.get("streamingData", {})
+        
+        if not streaming_data:
+            self.log.warning("No streaming data found")
+            return Tracks()
+        
+        tracks = Tracks()
+        
+        # Check for DRM protection at stream level
+        has_license_infos = "licenseInfos" in streaming_data
+        license_infos = streaming_data.get("licenseInfos", [])
+        
+        # Get PSSH from licenseInfos if available
+        pssh_data = None
+        kid_data = None
+        for lic_info in license_infos:
+            drm_family = lic_info.get("drmFamily")
+            target_family = "PLAYREADY" if self.playready else "WIDEVINE"
+            if drm_family == target_family:
+                pssh_data = lic_info.get("psshData")
+                if "keyIds" in lic_info and lic_info["keyIds"]:
+                    kid_data = lic_info["keyIds"][0]
+                break
+        
+        adaptive_formats = streaming_data.get("adaptiveFormats", [])
+        progressive_formats = streaming_data.get("formats", [])
+        
+        self.log.debug(f"Found {len(adaptive_formats)} adaptive formats, {len(progressive_formats)} progressive formats")
+        
+        all_formats = adaptive_formats + progressive_formats
+        
+        for fmt in all_formats:
+            mime_type = fmt.get("mimeType", "")
+            has_video = fmt.get("width") is not None and fmt.get("height") is not None
+            
+            # Detect DRM - formats without URL are typically DRM protected
+            has_url = bool(fmt.get("url"))
+            has_drm = not has_url or fmt.get("hasDrm", False) or fmt.get("has_drm", False) or has_license_infos
+            
+            # Video track
+            if has_video:
+                # Extract codec
+                codec_str = fmt.get("codecs", "")
+                if not codec_str and "codecs" in mime_type:
+                    match = re.search(r'codecs=["\']([^"\']+)["\']', mime_type)
+                    if match:
+                        codec_str = match.group(1)
+                
+                codec_lower = codec_str.lower()
+                if "avc1" in codec_lower or "h264" in codec_lower:
+                    video_codec = "H264"
+                elif "vp09" in codec_lower or "vp9" in codec_lower:
+                    video_codec = "VP9"
+                elif "av01" in codec_lower or "av1" in codec_lower:
+                    video_codec = "AV1"
+                else:
+                    video_codec = "H264"
+                
+                quality_label = fmt.get("qualityLabel", "")
+                is_hdr = "HDR" in quality_label or fmt.get("dynamicRange") == "HDR10"
+                
+                track = VideoTrack(
+                    id_=str(fmt["itag"]),
+                    source="YT",
+                    url=fmt.get("url"),
+                    codec=video_codec,
+                    bitrate=fmt.get("bitrate", 0),
+                    width=fmt["width"],
+                    height=fmt["height"],
+                    fps=fmt.get("fps", 0),
+                    hdr10=is_hdr,
+                    descriptor=Track.Descriptor.URL,
+                    encrypted=has_drm,
+                    pssh=pssh_data if has_drm else None,
+                    kid=kid_data,
+                )
+                tracks.add(track)
+                self.log.debug(f"Added video: {fmt['width']}x{fmt['height']} - {video_codec}, encrypted={has_drm}")
+            
+            # Audio track
+            elif "audio" in mime_type:
+                codec_str = fmt.get("codecs", "")
+                language = fmt.get("language", "und")
+                is_descriptive = "desc" in language
+                language = language.replace("-desc", "")
+                
+                codec_lower = codec_str.lower()
+                if "mp4a" in codec_lower:
+                    audio_codec = "AAC"
+                elif "opus" in codec_lower:
+                    audio_codec = "OPUS"
+                else:
+                    audio_codec = "AAC"
+                
+                track = AudioTrack(
+                    id_=str(fmt["itag"]),
+                    source="YT",
+                    url=fmt.get("url"),
+                    codec=audio_codec,
+                    language=language,
+                    descriptive=is_descriptive,
+                    bitrate=fmt.get("bitrate", 0),
+                    channels=fmt.get("audioChannels", 2),
+                    needs_proxy=True,
+                    needs_repack=False,
+                    encrypted=has_drm,
+                    pssh=pssh_data if has_drm else None,
+                    kid=kid_data,
+                )
+                tracks.add(track)
+        
+        self.log.info(f"Found {len(tracks.videos)} video tracks, {len(tracks.audios)} audio tracks")
+        
+        # Process subtitles
+        self._process_subtitles(title, tracks)
+        
+        # NO FILTERS - Show all tracks
+        self.log.debug("Showing all tracks without filtering")
+        
+        # Set original language
+        for audio in tracks.audios:
+            if audio.language and audio.language != "und":
+                title.original_lang = Language.get(audio.language)
+                break
         
         return tracks
 
-    def get_chapters(self, title: Title) -> list:
-        return []
-
-    def license(self, challenge: bytes, title: Title, track: Any, session_id: str) -> bytes:
-        self.log.info("Requesting Widevine license...")
+    def _process_subtitles(self, title: Title, tracks: Tracks) -> None:
+        """Process subtitle tracks"""
+        captions_data = title.service_data.get("captions", {}).get("playerCaptionsTracklistRenderer", {})
+        caption_tracks = captions_data.get("captionTracks", [])
         
-        service_data = title.service_data
-        video_info = service_data['video_info']
-        client_info = self.context_data['client_info'] 
-        
-        drm_params = video_info.get("streamingData", {}).get("drmParams")
+        for track_info in caption_tracks:
+            base_url = track_info["baseUrl"]
+            lang_code = track_info["languageCode"]
+            vss_id = track_info["vssId"]
+            
+            is_asr = track_info.get("kind") == "asr"
+            if is_asr and not self.auto_generated:
+                continue
+            
+            # Convert to VTT format
+            if "fmt=srv3" in base_url:
+                track_url = base_url.replace("fmt=srv3", "fmt=vtt")
+            else:
+                track_url = base_url + "&fmt=vtt"
+            
+            # Determine subtitle flags - CRITICAL: these are mutually exclusive!
+            # YouTube vssId format:
+            #   - ".en" = normal
+            #   - ".en.f" = forced
+            #   - ".en.a" = SDH
+            #   - ".en.c" = CC
+            #   - ".en.asr" = auto-generated
+            vss_lower = vss_id.lower()
+            
+            is_forced = "f" in vss_lower
+            is_sdh = "a" in vss_lower
+            is_cc = "c" in vss_lower
+            
+            # Forced and SDH/CC cannot both be True
+            if is_forced:
+                is_sdh = False
+                is_cc = False
+            
+            # SDH and CC cannot both be True (pick one)
+            if is_sdh and is_cc:
+                # Prefer SDH over CC for YouTube
+                is_cc = False
+            
+            tracks.add(
+                TextTrack(
+                    id_=md5(track_url.encode()).hexdigest()[0:6],
+                    source="YT",
+                    url=track_url,
+                    codec=self.scodec.lower(),
+                    language=lang_code,
+                    forced=is_forced,
+                    sdh=is_sdh,
+                    cc=is_cc,
+                    descriptor=Track.Descriptor.URL,
+                ),
+                warn_only=True,
+            )
 
-        json_payload = {
-            'context': {'client': client_info},
-            'drmSystem': 'DRM_SYSTEM_WIDEVINE',
-            'videoId': title.id,
-            'cpn': 'MsQQaCE9gAkD9iLF',
-            'sessionId': service_data.get('session_id', ''),
-            'drmParams': drm_params,
-            "licenseRequest": base64.b64encode(challenge).decode("utf-8")
+    def license(self, challenge, title, track, *_, **__):
+        """Get license for DRM content with PlayReady support"""
+        if "streamingData" not in title.service_data:
+            raise self.log.exit("No streaming data, licensing not possible.")
+        
+        self._content_keys = {}
+        streaming_data = title.service_data["streamingData"]
+        license_infos = streaming_data.get("licenseInfos", [])
+        
+        # Find appropriate license URL
+        license_url = None
+        for lic_info in license_infos:
+            drm_family = lic_info.get("drmFamily")
+            target_family = "PLAYREADY" if self.playready else "WIDEVINE"
+            if drm_family == target_family:
+                license_url = lic_info.get("url")
+                break
+        
+        if license_url:
+            headers = {}
+            if self.playready:
+                headers["Content-Type"] = "text/xml; charset=utf-8"
+                headers["SOAPAction"] = '"http://schemas.microsoft.com/DRM/2007/03/protocols/AcquireLicense"'
+            else:
+                headers["Content-Type"] = "application/octet-stream"
+            
+            res = self.session.post(license_url, data=challenge, headers=headers)
+            
+            if res.status_code == 200:
+                if self.playready:
+                    license_data = base64.b64encode(res.content.split(b"\r\n\r\n", 1)[1] if b"\r\n\r\n" in res.content else res.content).decode()
+                else:
+                    license_data = res.content.split(b"\r\n\r\n", 1)[1] if b"\r\n\r\n" in res.content else res.content
+                
+                self._extract_keys_from_license(license_data)
+                return license_data
+        
+        # Fallback to YouTube API
+        try:
+            res = self.session.post(
+                url=self.config["endpoints"]["license"],
+                json={
+                    "context": {
+                        "client": {
+                            "clientName": "ANDROID_VR",
+                            "clientVersion": "1.61.48",
+                        }
+                    },
+                    "videoId": title.id,
+                    "drmSystem": f"DRM_SYSTEM_{'PLAYREADY' if self.playready else 'WIDEVINE'}",
+                    "licenseRequest": base64.b64encode(challenge).decode('utf-8'),
+                },
+            ).json()
+            
+            license_data = base64.urlsafe_b64decode(res["license"])
+            self._extract_keys_from_license(license_data)
+            return license_data
+        except Exception as e:
+            self.log.error(f"License request failed: {e}")
+            raise
+
+    def _extract_keys_from_license(self, license_data):
+        """Extract content keys from license response"""
+        try:
+            from pywidevine.license_protocol import License
+            license_obj = License.load(license_data)
+            
+            for key in license_obj.keys:
+                if key.type == 'CONTENT':
+                    kid_hex = key.kid.hex()
+                    key_hex = key.key.hex()
+                    self._content_keys[kid_hex] = key_hex
+                    self.log.info(f" + Extracted key for KID: {kid_hex[:8]}...")
+        except Exception as e:
+            self.log.debug(f"License parsing failed: {e}")
+
+    def configure(self):
+        """Configure session with authentication"""
+        self.session.headers.update({
+            "Authorization": f"Bearer {self.access_token}",
+            "X-YouTube-Client-Name": "28",
+            "X-YouTube-Client-Version": "1.61.48",
+            "Content-Type": "application/json",
+        })
+
+    def _fetch_player_data(self, video_id: str) -> dict:
+        """Fetch player data using authenticated client"""
+        payload = {
+            "context": {
+                "client": {
+                    "deviceMake": "Oculus",
+                    "deviceModel": "Quest 3",
+                    "clientName": "ANDROID_VR",
+                    "clientVersion": "1.61.48",
+                    "osName": "Android",
+                    "osVersion": "12",
+                    "hl": "en_US",
+                    "gl": "US",
+                },
+            },
+            "videoId": video_id,
+            "racyCheckOk": True,
+            "contentCheckOk": True,
         }
         
-        lic_response = self.session.post(
-            f"{self.LICENSE_SERVER_URL}?key={self.API_KEY}",
-            json=json_payload
-        )
-        lic_response.raise_for_status()
-        
-        license_b64 = lic_response.json().get("license")
-        if not license_b64:
-            self.log.exit(f" - License request failed: {lic_response.json()}")
+        try:
+            res = self.session.post(
+                self.config["endpoints"]["player"],
+                json=payload
+            )
+            res.raise_for_status()
+            return res.json()
+        except Exception as e:
+            self.log.debug(f"VR client failed: {e}, trying web...")
+            return self._fetch_player_data_web(video_id)
 
-        return base64.b64decode(license_b64.replace("-", "+").replace("_", "/"))
+    def _fetch_player_data_web(self, video_id: str) -> dict:
+        """Fallback to web client"""
+        try:
+            url = f"https://www.youtube.com/watch?v={video_id}"
+            res = self.session.get(url, headers={
+                "User-Agent": self.config["device"]["user_agent"],
+            })
+            
+            if match := re.search(r'var ytInitialPlayerResponse\s*=\s*({.*?});', res.text, re.DOTALL):
+                return json.loads(match.group(1))
+        except Exception as e:
+            self.log.debug(f"Web client failed: {e}")
+        
+        return {}
+
+    def get_chapters(self, title):
+        return []
+
+    def get_titles_from_playlist(self):
+        """Get titles from a playlist"""
+        res = self.session.get(f"https://www.youtube.com/playlist?list={self.playlist_id}").text
+        if not (match := re.search(r"var ytInitialData = ({.+?});</script>", res, re.MULTILINE)):
+            raise self.log.exit("Failed to retrieve ytInitialData")
+        
+        init_object = json.loads(match.group(1))
+        episode_items = init_object["contents"]["twoColumnBrowseResultsRenderer"]["tabs"][0]["tabRenderer"]["content"]["sectionListRenderer"]["contents"][0]["itemSectionRenderer"]["contents"][0]["playlistVideoListRenderer"]["contents"]
+        
+        playlist_name = init_object["sidebar"]["playlistSidebarRenderer"]["items"][0]["playlistSidebarPrimaryInfoRenderer"]["title"]["runs"][0]["text"]
+        
+        titles = []
+        for idx, item in enumerate(episode_items):
+            video_id = item["playlistVideoRenderer"]["videoId"]
+            titles.append(Title(
+                id_=video_id,
+                type_=Title.Types.TV,
+                name=playlist_name,
+                episode=idx + 1,
+                episode_name=item["playlistVideoRenderer"]["title"]["runs"][0]["text"],
+                source=self.ALIASES[0],
+                service_data=self._fetch_player_data(video_id),
+            ))
+        return titles
+
+    def _get_show_titles(self):
+        """Get titles for a show"""
+        url = f"https://www.youtube.com/show/{self.title_id}"
+        res = self.session.get(url).text
+        if not (match := re.search(r"var ytInitialData = ({.+?});</script>", res, re.MULTILINE)):
+            raise self.log.exit("Failed to retrieve ytInitialData")
+        
+        return []  # Simplified for now

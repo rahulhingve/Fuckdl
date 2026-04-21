@@ -1,3 +1,3 @@
 @echo off
-poetry run fuckdl dl -q 720 -al en MoviesAnywhere https://moviesanywhere.com/movie/mad-max-fury-road
+poetry run fuckdl dl -q 1080 -al en -v H264 MoviesAnywhere https://moviesanywhere.com/movie/spider-man-into-the-spider-verse-2018
 pause

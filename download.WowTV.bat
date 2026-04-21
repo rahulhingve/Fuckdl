@@ -1,3 +1,3 @@
 @echo off
-poetry run fuckdl dl -al en WowTV -m TF20842156
+poetry run fuckdl dl -al en WowTV https://www.wowtv.de/watch/asset/euphoria/141292
 pause

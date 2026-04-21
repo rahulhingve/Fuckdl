@@ -15,49 +15,11 @@ from fuckdl.utils.io import get_ip_info
 
 
 class BaseService(ABC):
-    """
-    The service base class.
-    This should not be directly used as a service file, instead make a new class deriving this one:
-
-    ```
-    from fuckdl.services.BaseService import BaseService
-
-    ...
-
-    class ServiceName(BaseService):
-
-        ALIASES = ["DSNP", "disneyplus", "disney+"]  # first being the service tag (case-sensitive)
-        GEOFENCE = ["us"]  # required region/country for this service. empty list == no specific region.
-
-        def __init__(self, title, **kwargs):
-            self.title = title
-
-            # make sure the above 3 occur BEFORE the super().__init__() call below.
-            super().__init__(**kwargs)  # re-route the Base related init args
-
-            # service specific variables are recommended to be placed after the super().__init__() call
-
-            # instead of flooding up __init__ with logic, initialize the variables as default values
-            # here, and then call a new service specific (e.g. "configure()") in which has all the
-            # preparation logic. This allows for cleaner looking service code.
-
-        # from here, simply implement all the @abstractmethod functions seen in BaseClass.
-
-        # e.g. def get_titles(...
-
-        # After all the Abstract functions, I recommend putting any service specific functions
-        # separated by a comment denoting that.
-
-        # After those, I also recommend putting any service specific classes once again separated
-        # by a comment denoting that.
-    ```
-
-    This class deals with initializing and preparing of all related code that's common among services.
-    """
+    """The service base class."""
 
     # Abstract class variables
-    ALIASES = []  # begin with source tag (case-sensitive) and name aliases (case-insensitive)
-    GEOFENCE = []  # list of ip regions required to use the service. empty list == no specific region.
+    ALIASES = []
+    GEOFENCE = []
 
     def __init__(self, ctx):
         self.config = ctx.obj.config
@@ -73,22 +35,17 @@ class BaseService(ABC):
 
         proxy = ctx.parent.params["proxy"] or next(iter(self.GEOFENCE), None)
         if proxy:
-            if len("".join(i for i in proxy if not i.isdigit())) == 2:  # e.g. ie, ie12, us1356
+            if len("".join(i for i in proxy if not i.isdigit())) == 2:
                 proxy = self.get_proxy(proxy)
             if proxy:
                 if "://" not in proxy:
-                    # assume a https proxy port
                     proxy = f"https://{proxy}"
                 self.session.proxies.update({"all": proxy})
             else:
                 self.log.info(" + Proxy was skipped as current region matches")
 
     def get_session(self):
-        """
-        Creates a Python-requests Session, adds common headers
-        from config, cookies, retry handler, and a proxy if available.
-        :returns: Prepared Python-requests Session
-        """
+        """Creates a Python-requests Session with common headers and retry handler."""
         session = requests.Session()
         session.mount("https://", HTTPAdapter(
             max_retries=Retry(
@@ -107,124 +64,26 @@ class BaseService(ABC):
     # Abstract functions
 
     def get_titles(self):
-        """
-        Get Titles for the provided title ID.
-
-        Return a Title object for every unique piece of content found by the Title ID.
-        Each `Title` object should be thought of as one output file/download. E.g. a movie should be one Title,
-        and each episode of a TV show would also be one Title, where as a Season would be multiple Title's, one
-        per episode.
-
-        Each Title object must contain `title_name` (the Show or Movie name).
-        For TV, it also requires `season` and `episode` numbers, with `episode_name` being optional
-            but ideally added as well.
-        For Movies, it has no further requirements but `year` would ideally be added.
-
-        You can return one Title object, or a List of Title objects.
-
-        For any further data specific to each title that you may need in the later abstract methods,
-        add that data to the `service_data` variable which can be of any type or value you wish.
-
-        :return: One of or a List of Title objects.
-        """
+        """Get Titles for the provided title ID."""
         raise NotImplementedError
 
     def get_tracks(self, title):
-        """
-        Get Track objects of the Title.
-
-        Return a Tracks object, which itself can contain Video, Audio, Subtitle or even Chapters.
-        Tracks.videos, Tracks.audios, Tracks.subtitles, and Track.chapters should be a List of Track objects.
-
-        Each Track in the Tracks should represent a Video/Audio Stream/Representation/Adaptation or
-        a Subtitle file.
-
-        While one Track should only hold information for one stream/downloadable, try to get as many
-        unique Track objects per stream type so Stream selection by the root code can give you more
-        options in terms of Resolution, Bitrate, Codecs, Language, e.t.c.
-
-        No decision making or filtering of which Tracks get returned should happen here. It can be
-        considered an error to filter for e.g. resolution, codec, and such. All filtering based on
-        arguments will be done by the root code automatically when needed.
-
-        Make sure you correctly mark which Tracks are encrypted or not via its `encrypted` variable.
-
-        If you are able to obtain the Track's KID (Key ID) as a 32 char (16 bit) HEX string, provide
-        it to the Track's `kid` variable as it will speed up the decryption process later on. It may
-        or may not be needed, that depends on the service. Generally if you can provide it, without
-        downloading any of the Track's stream data, then do.
-
-        :param title: The current `Title` from get_titles that is being executed.
-        :return: Tracks object containing Video, Audio, Subtitles, and Chapters, if available.
-        """
+        """Get Track objects of the Title."""
         raise NotImplementedError
 
     def get_chapters(self, title):
-        """
-        Get MenuTracks chapter objects of the Title.
-
-        Return a list of MenuTracks objects. This will be run after get_tracks. If there's anything
-        from the get_tracks that may be needed, e.g. "device_id" or a-like, store it in the class
-        via `self` and re-use the value in get_chapters.
-
-        How it's used is generally the same as get_titles. These are only separated as to reduce
-        function complexity and keep them focused on simple tasks.
-
-        You do not need to sort or order the chapters in any way. However, you do need to filter
-        and alter them as needed by the service. No modification is made after get_chapters is
-        ran. So that means ensure that the MenuTracks returned have consistent Chapter Titles
-        and Chapter Numbers.
-
-        :param title: The current `Title` from get_titles that is being executed.
-        :return: List of MenuTrack objects, if available, empty list otherwise.
-        """
+        """Get MenuTracks chapter objects of the Title."""
         return []
 
     def certificate(self, challenge, title, track, session_id):
-        """
-        Get the Service Privacy Certificate.
-        This is supplied to the Widevine CDM for privacy mode operations.
-
-        If the certificate is a common certificate (one shared among various services),
-        then return `None` and it will be used instead.
-
-        Once you obtain the certificate, hardcode the certificate here and return it to reduce
-        unnecessary HTTP requests.
-
-        :param challenge: The service challenge, providing this to a License endpoint should return the
-            privacy certificate that the service uses.
-        :param title: The current `Title` from get_titles that is being executed. This is provided in
-            case it has data needed to be used, e.g. for a HTTP request.
-        :param track: The current `Track` needing decryption. Provided for same reason as `title`.
-        :param session_id: This is the session ID bytes blob used for storing Widevine session data.
-            It has no real meaning or syntax to its value, but some HTTP requests may ask for one.
-        :return: The Service Privacy Certificate as Bytes or a Base64 string. Don't Base64 Encode or
-            Decode the data, return as is to reduce unnecessary computations.
-        """
+        """Get the Service Privacy Certificate."""
         return self.license(challenge, title, track, session_id)
 
     def license(self, challenge, title, track, session_id):
-        """
-        Get the License response for the specified challenge and title data.
-        This can be decrypted and read by the Widevine CDM to return various keys
-        like Content Keys or HDCP test keys.
-
-        This is a very important request to get correct. A bad, unexpected, or missing value
-        in the request can cause your key to be detected and promptly banned, revoked,
-        disabled, or downgraded.
-
-        :param challenge: The license challenge from the Widevine CDM.
-        :param title: The current `Title` from get_titles that is being executed. This is provided in
-            case it has data needed to be used, e.g. for a HTTP request.
-        :param track: The current `Track` needing decryption. Provided for same reason as `title`.
-        :param session_id: This is the session ID bytes blob used for storing Widevine session data.
-            It has no real meaning or syntax to its value, but some HTTP requests may ask for one.
-        :return: The License response as Bytes or a Base64 string. Don't Base64 Encode or
-            Decode the data, return as is to reduce unnecessary computations.
-        """
+        """Get the License response for the specified challenge."""
         raise NotImplementedError
 
-    # Convenience functions to be used by the inheritor
+    # Convenience functions
 
     def parse_title(self, ctx, title):
         title = title or ctx.parent.params.get("title")
@@ -242,133 +101,259 @@ class BaseService(ABC):
         self.title = title
 
     def get_cache(self, key):
-        """
-        Get path object for an item from service Cache. The path object can then be
-        used to read or write to the cache under the item's key.
-
-        Parameters:
-            key: A string similar to a relative path to an item.
-        """
+        """Get path object for an item from service Cache."""
         return os.path.join(directories.cache, self.ALIASES[0], key)
 
-    # Functions intended to be used here in BaseClass internally only
+    # Proxy functions
 
     def get_proxy(self, region):
+        """Get a proxy for the specified region."""
         if not region:
             raise self.log.exit("Region cannot be empty")
+        
         region = region.lower()
-
         self.log.info(f"Obtaining a proxy to \"{region}\"")
-
-        if not self.force_proxy and get_ip_info()["country_code"].lower() == "".join(char for char in region if not char.isdigit()):
-            return None  # no proxy necessary
-
-        if config.proxies.get(region) and not config.default_proxy_service:
-            proxy = config.proxies[region]
-            self.log.info(f" + {proxy}")
+        
+        # Extract base country code
+        base_region = "".join(char for char in region if not char.isdigit())
+        
+        # Skip proxy if already in correct region
+        if not self.force_proxy:
+            ip_info = get_ip_info()
+            if ip_info and ip_info.get("country_code", "").lower() == base_region:
+                return None
+        
+        # Get default service from config
+        default_service = self._get_config_value('default_proxy_service')
+        
+        # Check if region already includes service
+        if ":" in region:
+            service, query_region = region.split(":", 1)
+            proxy = self._get_proxy_by_service(service, query_region)
+            if proxy:
+                return proxy
+        
+        # Use default service if configured
+        if default_service and default_service != 'null':
+            proxy = self._get_proxy_by_service(default_service, base_region)
+            if proxy:
+                return proxy
+        
+        # Fallback to basic proxies from config
+        proxies_dict = self._get_config_value('proxies', {})
+        if isinstance(proxies_dict, dict) and base_region in proxies_dict:
+            proxy = proxies_dict[base_region]
+            self.log.info(f" + {proxy} (via basic proxy config)")
+            return proxy
+        
+        raise self.log.exit(f" - Unable to obtain a proxy for region '{region}'.")
+    
+    def _get_proxy_by_service(self, service, region):
+        """Get proxy from specific service."""
+        service = service.lower()
+        
+        if service == "nordvpn":
+            return self._get_nordvpn_proxy(region)
+        elif service == "surfshark":
+            return self._get_surfshark_proxy(region)
+        elif service == "windscribe":
+            return self._get_windscribe_proxy(region)
         else:
-            default_service = config.default_proxy_service
-            proxy = None
-
-            if default_service == "nordvpn" and config.nordvpn.get("username") and config.nordvpn.get("password"):
-                proxy = self.get_nordvpn_proxy(region)
-                self.log.info(f" + {proxy} (via NordVPN)")
-            elif default_service == "surfshark" and config.surfshark.get("username") and config.surfshark.get("password"):
-                proxy = self.get_surfshark_proxy(region, config.surfshark)
-                self.log.info(f" + {proxy} (via SurfShark)")
+            self.log.warning(f"Unknown service: {service}")
+            return None
+    
+    def _get_config_value(self, key, default=None):
+        """Get config value handling both dict and SimpleNamespace."""
+        try:
+            if isinstance(config, dict):
+                return config.get(key, default)
             else:
-                raise self.log.exit(" - Unable to obtain a proxy")
-
-        if "://" not in proxy:
-            # assume a https proxy port
-            proxy = f"https://{proxy}"
-
-        return proxy
-
-    def get_nordvpn_proxy(self, region):
-        proxy = f"https://{config.nordvpn['username']}:{config.nordvpn['password']}@"
+                return getattr(config, key, default)
+        except Exception:
+            return default
+    
+    def _get_provider_config(self, provider_name):
+        """Get provider configuration from proxy_providers section."""
+        try:
+            proxy_providers = self._get_config_value('proxy_providers', {})
+            if isinstance(proxy_providers, dict):
+                return proxy_providers.get(provider_name, {})
+            return {}
+        except Exception:
+            return {}
+    
+    # ========================================================================
+    # NORDVPN PROXY METHODS
+    # ========================================================================
+    
+    def _get_nordvpn_proxy(self, region):
+        """Get NordVPN proxy for a region."""
+        nord_config = self._get_provider_config('nordvpn')
+        
+        username = nord_config.get('username', '')
+        password = nord_config.get('password', '')
+        
+        if not username or not password:
+            self.log.warning("NordVPN credentials not configured")
+            return None
+        
+        proxy = f"https://{username}:{password}@"
+        
         if any(char.isdigit() for char in region):
-            proxy += f"{region}.nordvpn.com"  # direct server id
-        elif try_get(config.nordvpn, lambda x: x["servers"][region]):
-            proxy += f"{region}{config.nordvpn['servers'][region]}.nordvpn.com"  # configured server id
+            proxy += f"{region}.nordvpn.com"
         else:
-            hostname = self.get_nordvpn_server(region)  # get current recommended server id
+            hostname = self._get_nordvpn_server(region)
             if not hostname:
-                raise self.log.exit(f" - NordVPN doesn't contain any servers for the country \"{region}\"")
+                return None
             proxy += hostname
-        return proxy + ":89"  # https: 89, http: 80
-
-    def get_nordvpn_server(self, country):
-
-        # Get the Country's NordVPN ID
-        countries = self.session.get(
-            url="https://api.nordvpn.com/v1/servers/countries" # new api
-        ).json()
-
-        country_id = [x["id"] for x in countries if x["code"].lower() == country.lower()]
-        if not country_id:
-            return None
-        country_id = country_id[0]
-
-        # Get the most recommended server for the country and return it
-        recommendations = self.session.get(
-            url="https://api.nordvpn.com/v1/servers/recommendations", # new api
-            params={
-                "filters[country_id]": country_id,
-                "limit": 30
-            }
-        ).json()
-        hostnames = [host["hostname"] for host in recommendations]
-        chosen_host = random.choice(hostnames)
-
-        return chosen_host
-
-    def get_surfshark_proxy(self, region, data):
-        """
-        Create a SurfShark proxy URL for the specified region.
         
-        Parameters:
-            region: Country code (in alpha-2 format, e.g. 'US' for United States)
-            data: Dictionary containing 'username' and 'password' keys for SurfShark credentials
+        proxy_url = proxy + ":89"
+        self.log.info(f" + {proxy_url} (via NordVPN)")
+        return proxy_url
+    
+    def _get_nordvpn_server(self, country):
+        """Get recommended NordVPN server for a country."""
+        try:
+            countries = self.session.get(
+                url="https://api.nordvpn.com/v1/servers/countries"
+            ).json()
             
-        Returns:
-            Proxy URL string in the format https://username:password@hostname:443
-        """
-        proxy = f"https://{data['username']}:{data['password']}@"
-        # Get the recommended server for the country
-        if not (hostname := self.get_surfshark_server(region)):
-            raise ValueError(
-                f"SurfShark doesn't contain any servers for the country {region!r}"
+            country_id = [x["id"] for x in countries if x["code"].lower() == country.lower()]
+            if not country_id:
+                return None
+            country_id = country_id[0]
+            
+            recommendations = self.session.get(
+                url="https://api.nordvpn.com/v1/servers/recommendations",
+                params={"filters[country_id]": country_id, "limit": 30}
+            ).json()
+            
+            hostnames = [host["hostname"] for host in recommendations]
+            return random.choice(hostnames) if hostnames else None
+        except Exception as e:
+            self.log.warning(f"Failed to get NordVPN server: {e}")
+            return None
+    
+    # ========================================================================
+    # SURFSHARK PROXY METHODS
+    # ========================================================================
+    
+    def _get_surfshark_proxy(self, region):
+        """Get Surfshark proxy for a region."""
+        surf_config = self._get_provider_config('surfshark')
+        
+        username = surf_config.get('username', '')
+        password = surf_config.get('password', '')
+        
+        self.log.debug(f"Surfshark config: username={username[:10]}..., password={'*' * len(password) if password else 'empty'}")
+        
+        if not username or not password:
+            self.log.warning("Surfshark credentials not configured")
+            return None
+        
+        hostname = self._get_surfshark_server(region)
+        if not hostname:
+            return None
+        
+        proxy_url = f"https://{username}:{password}@{hostname}:443"
+        self.log.info(f" + {proxy_url[:50]}... (via Surfshark)")
+        return proxy_url
+    
+    def _get_surfshark_server(self, country):
+        """Get recommended Surfshark server for a country."""
+        try:
+            response = self.session.get(
+                url='https://api.surfshark.com/v5/server/clusters/all'
             )
-        proxy += hostname
-        return proxy + ":443"
-
-    def get_surfshark_server(self, country):
-        """
-        Get the recommended SurfShark server hostname for a specified country.
-        
-        Parameters:
-            country: Country (in alpha-2 format, e.g. 'US' for United States)
+            countries = response.json()
             
-        Returns:
-            Recommended SurfShark server hostname, e.g. `al-tia.prod.surfshark.com`
-        """
-        response = self.session.get(
-            url='https://api.surfshark.com/v5/server/clusters/all'
-        )
-        countries = response.json()
-
-        if not (
-            items := [
-                x
-                for x in countries
-                if x["countryCode"].lower() == country.lower()
-                and x["type"].lower() not in ("obfuscated", "static")
+            items = [
+                x for x in countries
+                if x.get("countryCode", "").lower() == country.lower()
+                and x.get("type", "").lower() not in ("obfuscated", "static")
             ]
-        ):
+            
+            if not items:
+                return None
+            
+            return min(items, key=lambda x: x.get("load", 100))["connectionName"]
+        except Exception as e:
+            self.log.warning(f"Failed to get Surfshark server: {e}")
             return None
-
-        hostname = min(items, key=lambda x: x["load"])["connectionName"]
-
-        return hostname
-
+    
+    # ========================================================================
+    # WINDSCRIBE PROXY METHODS
+    # ========================================================================
+    
+    def _get_windscribe_proxy(self, region):
+        """Get Windscribe proxy for a region."""
+        wind_config = self._get_provider_config('windscribe')
+        
+        username = wind_config.get('username', '')
+        password = wind_config.get('password', '')
+        
+        if not username or not password:
+            self.log.warning("Windscribe credentials not configured")
+            return None
+        
+        server_match = re.match(r"^([a-z]{2})(\d+)$", region)
+        if server_match:
+            country_code, server_num = server_match.groups()
+            hostname = self._get_windscribe_specific_server(country_code, server_num)
+        else:
+            hostname = self._get_windscribe_random_server(region)
+        
+        if not hostname:
+            return None
+        
+        proxy_url = f"https://{username}:{password}@{hostname}:443"
+        self.log.info(f" + {proxy_url[:50]}... (via Windscribe)")
+        return proxy_url
+    
+    def _get_windscribe_servers(self):
+        """Get Windscribe server list."""
+        try:
+            response = self.session.get(
+                url="https://assets.windscribe.com/serverlist/firefox/1/1"
+            )
+            data = response.json()
+            return data.get("data", [])
+        except Exception as e:
+            self.log.warning(f"Failed to get Windscribe servers: {e}")
+            return []
+    
+    def _get_windscribe_specific_server(self, country_code, server_num):
+        """Get specific Windscribe server by number."""
+        servers = self._get_windscribe_servers()
+        
+        num_stripped = server_num.lstrip("0") or "0"
+        candidates = [
+            f"{country_code}-{server_num}.",
+            f"{country_code}-{num_stripped}.",
+            f"{country_code}-{server_num.zfill(3)}.",
+        ]
+        
+        for location in servers:
+            if location.get("country_code", "").lower() != country_code:
+                continue
+            for group in location.get("groups", []):
+                for host in group.get("hosts", []):
+                    hostname = host.get("hostname", "")
+                    if any(hostname.startswith(prefix) for prefix in candidates):
+                        return hostname
+        
+        return None
+    
+    def _get_windscribe_random_server(self, country_code):
+        """Get random Windscribe server for a country."""
+        servers = self._get_windscribe_servers()
+        
+        hostnames = []
+        for location in servers:
+            if location.get("country_code", "").lower() == country_code.lower():
+                for group in location.get("groups", []):
+                    for host in group.get("hosts", []):
+                        if hostname := host.get("hostname"):
+                            hostnames.append(hostname)
+        
+        return random.choice(hostnames) if hostnames else None

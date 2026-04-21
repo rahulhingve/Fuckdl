@@ -1,0 +1,450 @@
+# MGM+ Service Configuration
+# Version: 2.0.2 (Updated with Unshackle improvements)
+# Features:
+# - Improved Amazon audio selection (bitrate comparison)
+# - Better subtitle extraction from Amazon timedTextUrls
+# - Session cleanup between episodes
+# - Enhanced error handling and fallback logic
+
+headers:
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:147.0) Gecko/20100101 Firefox/147.0"
+  "Origin": "https://www.mgmplus.com"
+  "Referer": "https://www.mgmplus.com/"
+  "Accept": "application/json"
+  "Accept-Language": "en-US,en;q=0.9"
+  "Connection": "keep-alive"
+
+endpoints:
+  # EPIX API (AndroidTV)
+  sessions: "https://api.epixnow.com/v2/sessions"
+  registration_code: "https://api.epixnow.com/v2/devices/registration_code"
+  graphql: "https://api.epixnow.com/graphql"
+  search: "https://api.epixnow.com/v2/search"
+  
+  # MGM+ API (Web)
+  web_sessions: "https://api.mgmplus.com/v2/sessions"
+  web_graphql: "https://api.mgmplus.com/graphql"
+  
+  # License endpoints
+  license_base: "https://api.epix.com/drm/keys"
+
+# Client configuration (AndroidTV)
+client:
+  apikey: "592c205299de839aa3948643addfe0bc"
+  device:
+    app_version: "225.0.2025225001"
+    device: android
+    display_height: 2160
+    display_width: 3840
+    dpi: 320
+    format: tv
+    manufacturer: NVIDIA
+    model: SHIELD Android TV
+    os: fire
+    os_version: "11"
+
+# Web configuration (Fallback)
+web:
+  endpoints:
+    sessions: "https://api.mgmplus.com/v2/sessions"
+    graphql: "https://api.mgmplus.com/graphql"
+  apikey: "53e208a9bbaee479903f43b39d7301f7"
+  device:
+    format: console
+    os: web
+    display_width: 3840  # Updated to 4K
+    display_height: 2160  # Updated to 4K
+    app_version: "1.0.2"
+    model: browser
+    manufacturer: google
+    device_interface_type: desktop
+
+# Amazon configuration (Fallback DRM)
+amazon:
+  base: "https://q423ce52d0d3f1.na.api.amazonvideo.com"
+  device_type: "AOAGZA014O5RE"
+  marketplace: "ATVPDKIKX0DER"
+
+# PlayFlow configuration
+playflow:
+  supported_actions:
+    - "noop"
+    - "continue_play"
+    - "play_content"
+    - "show_notice"
+    - "log_in"
+    - "start_billing"
+    - "open_url"
+    - "confirm_provider"
+    - "unlinked_provider"
+  
+  stream_types:
+    - encryption_scheme: "CBCS"
+      packaging_system: "DASH"
+    - encryption_scheme: "CENC"
+      packaging_system: "DASH"
+    - encryption_scheme: "NONE"
+      packaging_system: "HLS"
+    - encryption_scheme: "AES_128"
+      packaging_system: "HLS"
+    - encryption_scheme: "SAMPLE_AES"
+      packaging_system: "HLS"
+
+# GraphQL Queries - Updated for Unshackle v2.0.2 compatibility
+graphql_queries:
+  # Movie queries
+  movie_details: |
+    query Movie($id: ID!) {
+      movie(id: $id) {
+        id
+        title
+        shortName
+        releaseYear
+        synopsis
+        duration
+        mpaaRating
+        underlyingId
+        genres { name }
+        labels { text }
+        descriptiveAudio { available }
+        __typename
+      }
+    }
+  
+  movie_simple: |
+    query Movie($id: ID!) {
+      movie(id: $id) {
+        id
+        title
+        shortName
+        releaseYear
+        __typename
+      }
+    }
+  
+  # Series queries
+  series_basic: |
+    query Series($id: ID!) {
+      series(id: $id) {
+        id
+        title
+        shortName
+        underlyingId
+        __typename
+      }
+    }
+  
+  series_details: |
+    query Series($id: ID!) {
+      series(id: $id) {
+        id
+        title
+        shortName
+        shortDescription
+        mpaaRating
+        underlyingId
+        genres { name }
+        labels { text }
+        descriptiveAudio { available }
+        seasons {
+          nodes {
+            id
+            title
+            number
+            __typename
+          }
+          __typename
+        }
+        __typename
+      }
+    }
+  
+  # Episode queries
+  episodes_by_season: |
+    query Episodes($seasonId: ID!, $first: Int, $after: String) {
+      episodes(seasonId: $seasonId, first: $first, after: $after) {
+        pageInfo {
+          endCursor
+          hasNextPage
+          __typename
+        }
+        nodes {
+          id
+          title
+          releaseYear
+          duration
+          number
+          description
+          seasonNumber
+          shortTitle
+          rating { value }
+          series {
+            shortName
+            __typename
+          }
+          __typename
+        }
+        __typename
+      }
+    }
+  
+  episode_by_id: |
+    query Episode($id: ID!) {
+      episode(id: $id) {
+        id
+        title
+        releaseYear
+        duration
+        number
+        description
+        seasonNumber
+        shortTitle
+        rating { value }
+        series {
+          title
+          shortName
+          __typename
+        }
+        __typename
+      }
+    }
+  
+  episode_by_numbers: |
+    query Episode($seriesShortName: String!, $seasonNumber: Int!, $episodeNumber: Int!) {
+      episode(
+        seriesShortName: $seriesShortName
+        seasonNumber: $seasonNumber
+        episodeNumber: $episodeNumber
+      ) {
+        id
+        title
+        releaseYear
+        duration
+        number
+        description
+        seasonNumber
+        shortTitle
+        rating { value }
+        series {
+          shortName
+          __typename
+        }
+        __typename
+      }
+    }
+  
+  # PlayFlow queries
+  play_flow: |
+    query Play($id: String!, $context: String, $behavior: BehaviorEnum, $supportedActions: [PlayFlowActionEnum!]!) {
+      playFlow(id: $id, context: $context, behavior: $behavior, supportedActions: $supportedActions) {
+        __typename
+        ... on PlayContent {
+          type
+          continuationContext
+          playheadPosition
+          streams(types: [
+            { packagingSystem: DASH, encryptionScheme: CBCS },
+            { packagingSystem: DASH, encryptionScheme: CENC },
+            { packagingSystem: HLS, encryptionScheme: NONE }
+          ]) {
+            id
+            internalStreamId
+            videoQuality { width height }
+            widevine { authenticationToken licenseServerUrl }
+            packagingSystem
+            encryptionScheme
+            playlistUrl
+          }
+          closedCaptions {
+            vtt { location }
+          }
+          currentItem {
+            content {
+              __typename
+              ... on Movie {
+                id
+                title
+                underlyingId
+                duration
+              }
+              ... on Episode {
+                id
+                title
+                underlyingId
+                duration
+              }
+            }
+          }
+          hints {
+            videoId
+            videoTitle
+            resourceId
+            isLive
+          }
+        }
+        ... on ShowNotice {
+          type
+          actions {
+            continuationContext
+            text
+          }
+          description
+          title
+        }
+        ... on ContinuePlay {
+          type
+        }
+        ... on LogIn {
+          type
+        }
+        ... on Noop {
+          type
+        }
+      }
+    }
+  
+  web_play_flow: |
+    query PlayFlow($id: String!, $supportedActions: [PlayFlowActionEnum!]!, $context: String, $behavior: BehaviorEnum = DEFAULT, $streamTypes: [StreamDefinition!]) {
+      playFlow(
+        id: $id
+        supportedActions: $supportedActions
+        context: $context
+        behavior: $behavior
+      ) {
+        ... on ShowNotice {
+          type
+          actions { continuationContext text }
+          description
+          title
+          __typename
+        }
+        ... on PlayContent {
+          type
+          continuationContext
+          heartbeatToken
+          currentItem {
+            content {
+              __typename
+              ... on Movie { id shortName amazonContentId duration }
+              ... on Episode {
+                id
+                series { shortName __typename }
+                seasonNumber
+                number
+                amazonContentId
+                duration
+              }
+            }
+          }
+          amazonPlayback {
+            playbackEnvelope
+            playbackId
+            __typename
+          }
+          playheadPosition
+          closedCaptions {
+            vtt { location __typename }
+            __typename
+          }
+          streams(types: $streamTypes) {
+            id
+            playlistUrl
+            packagingSystem
+            encryptionScheme
+            videoQuality { height width __typename }
+            widevine { authenticationToken licenseServerUrl __typename }
+            __typename
+          }
+          __typename
+        }
+        ... on ContinuePlay { type __typename }
+        ... on LogIn { type __typename }
+        ... on Noop { type __typename }
+        __typename
+      }
+    }
+
+# Quality profiles
+qualities:
+  "2160": "4K UHD HDR"
+  "1080": "Full HD"
+  "720": "HD"
+  "540": "HD (Low)"
+  "480": "SD"
+  "360": "SD (Low)"
+
+# Audio codec preferences (for Amazon bitrate comparison)
+audio_preferences:
+  codec_order:
+    - "ec-3"  # Dolby Digital Plus
+    - "mp4a"  # AAC
+    - "ac-3"  # Dolby Digital
+  preferred_languages:
+    - "en"
+    - "es"
+    - "fr"
+
+# Cookies required for authentication (fallback)
+required_cookies:
+  - "aws-waf-token"
+  - "epx_guid"
+
+# DRM information
+drm:
+  widevine:
+    enabled: true
+    license_endpoint: "https://api.epix.com/drm/keys"
+    requires_customdata: true
+    customdata_header: "x-keyos-authorization"
+  
+  playready:
+    enabled: true
+    license_endpoint: "https://api.epix.com/drm/keys"
+    requires_customdata: true
+  
+  fairplay:
+    enabled: true
+    certificate_endpoint: "https://fairplay.keyos.com/api/v4/getCertificate"
+    license_endpoint: "https://api.epix.com/drm/keys"
+    requires_customdata: true
+
+# Service information
+service_info:
+  name: "MGM+"
+  aliases: ["MGM", "EPIX", "MGMPlus"]
+  website: "https://www.mgmplus.com"
+  authorization: "Device Login Pair"
+  version: "2.0.2"
+  last_updated: "2026-02-19"
+  security:
+    widevine:
+      l3: "1080p/4K"
+    playready:
+      l3: "1080p/4K"
+    fairplay:
+      enabled: true
+  features:
+    - "4K UHD HEVC"
+    - "Dolby Digital Plus / Atmos"
+    - "Multiple audio tracks"
+    - "SDH/CC subtitles"
+    - "Forced narrative subtitles"
+
+# Cache settings
+cache:
+  session_token_ttl: 86400  # 24 hours
+  guid_ttl: 2592000  # 30 days
+  vendor_id_ttl: 2592000  # 30 days
+
+# Logging configuration
+logging:
+  levels:
+    default: "INFO"
+    network: "DEBUG"
+    drm: "DEBUG"
+  colors:
+    enabled: true
+    info: "\033[32m"  # Green
+    warning: "\033[33m"  # Yellow
+    error: "\033[31m"  # Red
+    debug: "\033[36m"  # Cyan

@@ -1,0 +1,14 @@
+# ADN - Animation Digital Network
+# https://animationdigitalnetwork.com
+
+api_base: https://gw.api.animationdigitalnetwork.fr/
+player_base: https://gw.api.animationdigitalnetwork.fr/player/
+
+endpoints:
+  login: https://gw.api.animationdigitalnetwork.fr/authentication/login
+  player_config: https://gw.api.animationdigitalnetwork.fr/player/video/{video_id}/configuration
+  refresh_token: https://gw.api.animationdigitalnetwork.fr/player/refresh/token
+  video_link: https://gw.api.animationdigitalnetwork.fr/player/video/{video_id}/link
+  show: https://gw.api.animationdigitalnetwork.fr/show/{show_id}/
+  episodes: https://gw.api.animationdigitalnetwork.fr/video/show/{show_id}
+  video_metadata: https://gw.api.animationdigitalnetwork.fr/video/{video_id}

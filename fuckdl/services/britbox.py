@@ -37,6 +37,9 @@ class BritBox(BaseService):
         - Use --list-titles before anything, BBlayer's listings are often messed up.
     \b
         - Use --range HLG to request H265 UHD tracks
+
+    Added by default by @Mike
+
     """
 
     ALIASES = ["BB"]
@@ -242,10 +245,17 @@ class BritBox(BaseService):
         return []
 
     def certificate(self, challenge, **_):
-        return None if self.cdm.device.type == LocalDevice.Types.PLAYREADY else self.license(challenge)
-
+        is_playready = (hasattr(self.cdm, '__class__') and 'PlayReady' in self.cdm.__class__.__name__) or \
+                       (hasattr(self.cdm, 'device') and hasattr(self.cdm.device, 'type') and 
+                        self.cdm.device.type == LocalDevice.Types.PLAYREADY)
+        return None if is_playready else self.license(challenge)
+    
     def license(self, challenge, **_):
-        if self.cdm.device.type == LocalDevice.Types.PLAYREADY:
+        is_playready = (hasattr(self.cdm, '__class__') and 'PlayReady' in self.cdm.__class__.__name__) or \
+                       (hasattr(self.cdm, 'device') and hasattr(self.cdm.device, 'type') and 
+                        self.cdm.device.type == LocalDevice.Types.PLAYREADY)
+        
+        if is_playready:
             try:
                 try:
                     res_params = requests.get(self.config["endpoints"]["licence_pr"].format(vpid=self.vpid), 
@@ -301,7 +311,6 @@ class BritBox(BaseService):
                 raise self.log.exit(f" - Unable to obtain license (error code: {e.response.json()['errorCode']})")
         
         return None  # Unencrypted
-
 
     # service specific functions
 

@@ -177,6 +177,7 @@ def range_param(ctx, param, value):
         "hlg": "HLG",
         "dv": "DV",
         "dovi": "DV",
+        "dv+hdr": "DV+HDR"
     })
 
 

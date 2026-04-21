@@ -1,0 +1,4 @@
+endpoints:
+  content: "/api/vcp/{id}"
+  detail: "/api/content-detail?contentId={id}"
+  episodes: "/api/seasons/{sid}/episodes"

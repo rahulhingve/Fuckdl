@@ -55,8 +55,10 @@ class DSCPUS(BaseService):
     def __init__(self, ctx, title):
         super().__init__(ctx)
         self.title = self.parse_title(ctx, title)
-        self.playready = ctx.obj.cdm.device.type == LocalDevice.Types.PLAYREADY
-            
+        cdm = ctx.obj.cdm
+        self.playready = (hasattr(cdm, '__class__') and 'PlayReady' in cdm.__class__.__name__) or \
+                         (hasattr(cdm, 'device') and hasattr(cdm.device, 'type') and 
+                          cdm.device.type == LocalDevice.Types.PLAYREADY)            
         self.vcodec = ctx.parent.params["vcodec"]
         self.acodec = ctx.parent.params["acodec"]
         self.range = ctx.parent.params["range_"]

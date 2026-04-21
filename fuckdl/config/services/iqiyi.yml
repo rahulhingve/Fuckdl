@@ -1,0 +1,93 @@
+endpoint:
+  mode: "http://ip.geo.iqiyi.com/queryZone"
+  pck: "https://pcw-api.iq.com/api/vip/show"
+  ptid: "https://pcw-api.iq.com/api/conf-id"
+  vip: "https://pcw-api.iq.com/api/pvvp"
+  search: "https://pcw-api.iq.com/api/search2"
+  album: "https://www.iq.com/album/{id}?lang={lang_code}"
+  series_episode: "https://pcw-api.iq.com/api/v2/episodeListSource/{albumid}"
+  reality_episode: "https://pcw-api.iq.com/api/v2/episode-list-paging"
+  stream: "https://cache-video.iq.com{path}&vf={vf}"
+  audio: "https://data6.video.iqiyi.com/videos/{path}"
+  subtitle: "http://meta.video.iqiyi.com{path}"
+
+device:
+  user_agent: "QYPlayer/Android/5.2.0500;BT/mcto;Pt/Mobile;NetType/4G;Hv/10.1.25.5051;QTP/2.1.117.104"
+  user_agent_bws: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"
+  platform_id: "3"
+
+key:
+  dash: "o1cmec973m7qqw5cg93u5k1gsuw1i7uk"
+  ccsn: "c665dfa2f8cdabf239867216ac758a8a"
+  ml: "66647d33d9feca3defff5e56424600cd"
+
+quality:
+  video:
+    8k:
+      k_ft2: "2147483647"
+      k_ft4: ""
+      k_ft5: "137"
+      k_ft7: "52068007"
+      k_ft8: "_"
+    h264:
+      k_ft1: "549755814020"
+      k_ft4: "4"
+      k_ft5: "1"
+      k_ft7: "0"
+    h265:
+      k_ft1: "748218484789764"
+      k_ft2: "2147483647"
+      k_ft4: ""
+      k_ft5: "137"
+      k_ft7: "52068007"
+      k_ft8: "_"
+    h265_edr:
+      k_ft1: "748218485838340"
+      k_ft2: "2147483647"
+      k_ft4: ""
+      k_ft5: "137"
+      k_ft7: "52068007"
+      k_ft8: "_"
+    hdr_edr:
+      k_ft1: "748218486362628"
+      k_ft2: "2147483647"
+      k_ft4: ""
+      k_ft5: "137"
+      k_ft7: "52068007"
+      k_ft8: "_"
+    hdr:
+      k_ft1: "748218485314052"
+      k_ft2: "2147483647"
+      k_ft4: ""
+      k_ft5: "137"
+      k_ft7: "52068007"
+      k_ft8: "_"
+    dv_edr:
+      k_ft1: "748218485838596"
+      k_ft2: "2147483647"
+      k_ft4: ""
+      k_ft5: "137"
+      k_ft7: "52068007"
+      k_ft8: "_"
+    dv:
+      k_ft1: "748218484790020"
+      k_ft2: "2147483647"
+      k_ft4: ""
+      k_ft5: "137"
+      k_ft7: "52068007"
+      k_ft8: "_"
+  audio:
+    dolby:
+      abid: "500"
+      cf: "1"
+      ct: ""
+    aac:
+      abid: "500"
+      cf: "2"
+      ct: ""
+
+# Automatically select a language when commenting.
+# Language setting is only available in
+# en_us, ko, ja, zh_cn, zh_tw, id_id, es_mx, ms_my, th_th, vi_vn, pt_br.
+# preferences:
+#   language: "ko"

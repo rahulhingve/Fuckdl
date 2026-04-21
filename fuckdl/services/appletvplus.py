@@ -12,7 +12,7 @@ import requests
 from fuckdl.objects import AudioTrack, TextTrack, Title, Tracks, VideoTrack
 from fuckdl.services.BaseService import BaseService
 from fuckdl.utils.collections import as_list
-from fuckdl.utils import try_get
+from fuckdl.utils import try_get, is_close_match
 from fuckdl.vendor.pymp4.parser import Box
 from fuckdl.utils.widevine.device import LocalDevice
 
@@ -21,8 +21,27 @@ class AppleTVPlus(BaseService):
     """
     Service code for Apple's TV Plus streaming service (https://tv.apple.com).
 
-    Authorization: Cookies
-    Security: UHD@L1 FHD@L1 HD@L3
+    Updated By @AnotherBigUserHere
+    Fixed By @Hugov - Updated license URI format with w parameter and id=2
+    V4
+    
+    + Fixed Developer token, to obtain the titles
+    + Better handling of Widevine and playready of their licence
+    + Shows the manifest, HLS manifiest, and says all the information
+    + Totally Functional, but enjoy this new rewrite of the service
+    + Updated license URI format to include w parameter for watermarking
+
+    For now, it is the most updated script of AppleTV, patch provided by @hugov, by the M3U observation
+    but tell me if you locate another issuse or the developers that works on it, Thanks a lot to all
+
+    \b
+    Authorization: Cookies (Apple Music Token)
+    Security: 
+    - PR SL3000 4K / 1080p
+
+    Exclusive for Fuckdl
+
+    Copyright AnotherBigUserHere 2026
     """
 
     ALIASES = ["ATVP", "appletvplus", "appletv+"]
@@ -39,6 +58,22 @@ class AppleTVPlus(BaseService):
         "EC3": ["ec3", "atmos"]
     }
 
+    # ISO-Country Code to Storefront ID mapping
+    STOREFRONT_MAP = {
+        "US": "143441", "GB": "143444", "DE": "143443", "FR": "143442", 
+        "CA": "143455", "AU": "143460", "JP": "143462", "BR": "143503",
+        "MX": "143468", "ES": "143454", "IT": "143450", "NL": "143452",
+        "SE": "143456", "CH": "143459", "AT": "143445", "BE": "143446",
+        "DK": "143458", "FI": "143447", "IE": "143449", "NO": "143457",
+        "PT": "143453", "PL": "143478", "RU": "143469", "TR": "143480",
+        "CN": "143465", "HK": "143463", "TW": "143470", "KR": "143466",
+        "SG": "143464", "IN": "143467", "AE": "143481", "SA": "143479",
+        "ZA": "143472", "NZ": "143461", "CL": "143483", "CO": "143501",
+        "AR": "143505", "PE": "143507", "VE": "143502", "PH": "143474",
+        "MY": "143473", "TH": "143475", "ID": "143476", "VN": "143471",
+        "IL": "143491", "EG": "143516", "NG": "143561", "KE": "143529"
+    }
+
     @staticmethod
     @click.command(name="AppleTVPlus", short_help="https://tv.apple.com")
     @click.argument("title", type=str, required=False)
@@ -53,11 +88,14 @@ class AppleTVPlus(BaseService):
         self.vcodec = ctx.parent.params["vcodec"]
         self.acodec = ctx.parent.params["acodec"]
         self.alang = ctx.parent.params["alang"]
+        self.slang = ctx.parent.params["slang"]
         self.subs_only = ctx.parent.params["subs_only"]
         
         self.extra_server_parameters = None
         self.storefront = None
-        self.environment_config = None
+        self.developer_token = None
+        self.watermarktoken = None
+        self.watermark_param = None  # New: store the w parameter from HLS
         
         self.configure()
 
@@ -83,18 +121,54 @@ class AppleTVPlus(BaseService):
         self.extra_server_parameters = stream_data["assets"]["fpsKeyServerQueryParameters"]
         hls_url = stream_data["assets"]["hlsUrl"]
         
-        self.log.info(f" - Fetching HLS manifest from: {hls_url}")
+        self.log.info(f"Manifiest URL: {hls_url}")
         master_playlist = self._fetch_hls_manifest(hls_url)
         tracks = self._parse_tracks_from_hls(master_playlist, hls_url)
         
+        # Extract w parameter from the license URI in the manifest
         self.watermarktoken = None
-        for track in tracks:
-            if isinstance(track, VideoTrack) and 'watermarkingToken=' in track.url:
-                match = re.search(r'watermarkingToken=([^&]+)', track.url)
-                if match:
-                    self.watermarktoken = unquote(match.group(1))
-                    self.log.info(f" - Found watermarking token: {self.watermarktoken}")
+        self.watermark_param = None
+        
+        # Look for w parameter in the video playlist URLs or EXT-X-KEY tags
+        if hasattr(master_playlist, 'playlists') and master_playlist.playlists:
+            for playlist in master_playlist.playlists:
+                # Check if the playlist URI has w parameter
+                if hasattr(playlist, 'uri') and playlist.uri:
+                    match_w = re.search(r'[?&]w=([^&]+)', playlist.uri)
+                    if match_w:
+                        self.watermark_param = match_w.group(1)
+                        self.log.info(f" - Found w parameter in playlist URI: {self.watermark_param}")
+                        break
+                
+                # Also check for EXT-X-KEY tags which contain license URIs
+                if hasattr(playlist, 'keys') and playlist.keys:
+                    for key in playlist.keys:
+                        if key and hasattr(key, 'uri') and key.uri:
+                            match_w = re.search(r'[?&]w=([^&]+)', key.uri)
+                            if match_w:
+                                self.watermark_param = match_w.group(1)
+                                self.log.info(f" - Found w parameter in EXT-X-KEY URI: {self.watermark_param}")
+                                break
+                
+                if self.watermark_param:
                     break
+        
+        # If still not found, try to extract from video track URLs as fallback
+        if not self.watermark_param:
+            for track in tracks:
+                if isinstance(track, VideoTrack):
+                    # Extract watermarkingToken
+                    match_token = re.search(r'watermarkingToken=([^&]+)', track.url)
+                    if match_token:
+                        self.watermarktoken = unquote(match_token.group(1))
+                        self.log.info(f" - Found watermarking token: {self.watermarktoken}")
+                    
+                    # Try to extract w parameter from video URL
+                    match_w = re.search(r'[?&]w=([^&]+)', track.url)
+                    if match_w:
+                        self.watermark_param = match_w.group(1)
+                        self.log.info(f" - Found w parameter in video URL: {self.watermark_param}")
+                        break
         
         tracks = self._filter_and_enhance_tracks(tracks)
         return tracks
@@ -115,9 +189,179 @@ class AppleTVPlus(BaseService):
 
     def configure(self):
         """Configure session with necessary headers and tokens."""
+        self.log.info("Configuring Apple TV+ session...")
+        
+        # Set storefront
         self._set_storefront()
-        self._set_environment_config()
+        
+        # Get developer token
+        self._get_developer_token()
+        
+        # Update session headers
         self._update_session_headers()
+
+    def _set_storefront(self):
+        """Set storefront based on cookies or default."""
+        self.log.info("Setting storefront...")
+        
+        # Try to get from cookie first
+        try:
+            # Get all cookies with name 'itua' and use the most specific one (tv.apple.com)
+            itu_cookies = []
+            for cookie in self.session.cookies:
+                if cookie.name == 'itua':
+                    itu_cookies.append(cookie)
+            
+            if itu_cookies:
+                # Sort by domain specificity (more specific domains first)
+                # For Apple, we want tv.apple.com > music.apple.com > .apple.com
+                itu_cookies.sort(key=lambda c: (
+                    -len(c.domain),  # Longer domain = more specific
+                    0 if c.domain == 'tv.apple.com' else 
+                    1 if c.domain == 'music.apple.com' else 
+                    2 if c.domain == '.apple.com' else 3
+                ))
+                
+                itu_cookie = itu_cookies[0]
+                itu_value = itu_cookie.value.upper()
+                
+                if itu_value in self.STOREFRONT_MAP:
+                    self.storefront = self.STOREFRONT_MAP[itu_value]
+                    self.log.info(f"Auto-detected storefront: {self.storefront} (from cookie itu: {itu_value} on domain {itu_cookie.domain})")
+                else:
+                    self.storefront = "143441"  # US default
+                    self.log.warning(f"Country code {itu_value} not in map, using default US storefront")
+            else:
+                self.storefront = "143441"  # US default
+                self.log.warning("No 'itua' cookie found, using default US storefront")
+                
+        except Exception as e:
+            self.log.error(f"Error setting storefront: {e}")
+            self.storefront = "143441"  # US default
+            self.log.warning("Using default US storefront due to error")
+        
+        self.log.info(f"Final storefront: {self.storefront}")
+
+    def _get_developer_token(self):
+        """Get developer token from Apple TV+ or Apple Music."""
+        self.log.info("Acquiring developer token...")
+        
+        tokens = {}
+                
+        # Apple Music Method
+        if not tokens:
+            self.log.info("Obtaining Authoritation Token...")
+            music_token = self._get_music_token()
+            if music_token:
+                tokens["Apple Music"] = music_token
+                self.log.info("âœ“ Got token from Apple Music")
+        
+        # Log token sources
+        if tokens:
+            self.log.info("Successfully obtained tokens from:")
+            for source, token in tokens.items():
+                token_preview = token[:50] + "..." if len(token) > 50 else token
+                self.log.info(f"  â€¢ {source}: {token_preview}")
+            
+            # Use the first available token
+            self.developer_token = next(iter(tokens.values()))
+            self.log.info(f"Using token from: {next(iter(tokens.keys()))}")
+        else:
+            self.log.error("Failed to obtain any developer token")
+            raise ValueError("No developer token could be obtained")
+
+    def _get_music_token(self):
+        """Get token from Apple Music JavaScript."""
+        try:
+            r = self.session.get("https://music.apple.com/us/browse")
+            
+            # Method 1: Look for JavaScript files
+            js_patterns = [
+                r'src="(/assets/index~[^"]+\.js)"',
+                r'src="(/assets/index\.[^"]+\.js)"',
+                r'src="(https://[^"]+apple\.com/[^"]+\.js)"'
+            ]
+            
+            js_url = None
+            for pattern in js_patterns:
+                match = re.search(pattern, r.text)
+                if match:
+                    js_url = match.group(1)
+                    if not js_url.startswith('http'):
+                        js_url = "https://music.apple.com" + js_url
+                    break
+            
+            if not js_url:
+                # Method 2: Look for inline scripts with tokens
+                self.log.info("Looking for inline scripts with tokens...")
+                inline_tokens = re.findall(r'eyJh[A-Za-z0-9\._-]{200,}', r.text)
+                if inline_tokens:
+                    # Return the longest token (usually the valid one)
+                    return max(inline_tokens, key=len)
+            
+            if js_url:
+                self.log.info(f"Fetching JavaScript from: {js_url}")
+                r2 = self.session.get(js_url)
+                tokens = re.findall(r'eyJh[A-Za-z0-9\._-]{200,}', r2.text)
+                if tokens:
+                    # Return the longest token (usually the valid one)
+                    return max(tokens, key=len)
+            
+            # Method 3: Try alternative Apple Music endpoints
+            alt_endpoints = [
+                "https://music.apple.com/assets/index.js",
+                "https://music.apple.com/us/assets/index.js",
+                "https://amp-api.music.apple.com"
+            ]
+            
+            for endpoint in alt_endpoints:
+                try:
+                    self.log.info(f"Trying alternative endpoint: {endpoint}")
+                    r3 = self.session.get(endpoint)
+                    if r3.ok:
+                        tokens = re.findall(r'eyJh[A-Za-z0-9\._-]{200,}', r3.text)
+                        if tokens:
+                            return max(tokens, key=len)
+                except Exception:
+                    continue
+                    
+        except Exception as e:
+            self.log.debug(f"Failed to get token from Apple Music: {e}")
+        return None
+
+    def _update_session_headers(self):
+        """Update session headers with authentication."""
+        if not self.developer_token:
+            raise ValueError("Missing developer token")
+        
+        # Get media-user-token cookie if available
+        media_token = None
+        try:
+            cookie_dict = self.session.cookies.get_dict()
+            if "media-user-token" in cookie_dict:
+                media_token = cookie_dict["media-user-token"]
+                self.log.info("Found media-user-token cookie")
+            else:
+                self.log.warning("No 'media-user-token' cookie found")
+        except Exception as e:
+            self.log.debug(f"Error getting media-user-token: {e}")
+        
+        # Update headers
+        headers = {
+            "User-Agent": self.config.get("user_agent", "AppleTV6,2/11.1"),
+            "Authorization": f"Bearer {self.developer_token}",
+            **self.config.get("headers", {})
+        }
+        
+        # Add media token headers if available
+        if media_token:
+            headers.update({
+                "media-user-token": media_token,
+                "x-apple-music-user-token": media_token
+            })
+        
+        self.session.headers.update(headers)
+        self.log.info("Session headers updated successfully")
 
     def _get_title_info(self) -> Optional[Dict]:
         """Get title information from API."""
@@ -257,20 +501,68 @@ class AppleTVPlus(BaseService):
         for track in tracks:
             self._enhance_track_info(track)
         
-        # Filter subtitle tracks
-        tracks.subtitles = [
-            x for x in tracks.subtitles
-            if (x.language in self.alang or 
-                (x.is_original_lang and "orig" in self.alang) or 
-                "all" in self.alang)
-            or self.subs_only
-            or not x.sdh
-        ]
+        # Filter subtitle tracks by language using slang (subtitle language param).
+        # CC and SDH tracks are only included if their language was explicitly
+        # requested â€” they never pass via is_original_lang to avoid English CC
+        # bleeding into downloads for other languages.
+        # Deduplicate subtitles by URL (ATVP returns each track 3 times
+        # via different CDN paths â€” keep only unique URLs).
+        seen_urls = set()
+        deduped = []
+        for x in tracks.subtitles:
+            if x.url not in seen_urls:
+                seen_urls.add(x.url)
+                deduped.append(x)
+        tracks.subtitles = deduped
+
+        slang_strs = [s.lower() for s in self.slang]
+        if "all" in slang_strs or self.subs_only:
+            pass  # keep all subtitles
+        else:
+            has_orig = "orig" in slang_strs
+            # Build per-requested-lang: base â†’ territory (or None if no territory)
+            # e.g. "es-ES" â†’ {"es": "es"}, "es" â†’ {"es": None}, "fr" â†’ {"fr": None}
+            req_langs = {}
+            for s in slang_strs:
+                if s in ("all", "orig"):
+                    continue
+                parts = s.split("-")
+                base = parts[0]
+                territory = parts[1].lower() if len(parts) > 1 else None
+                req_langs[base] = territory
+
+            def _sub_matches(x):
+                track_lang = str(x.language).lower()
+                parts = track_lang.split("-")
+                track_base = parts[0]
+                track_territory = parts[1] if len(parts) > 1 else None
+
+                if track_base not in req_langs:
+                    return False
+
+                req_territory = req_langs[track_base]
+                if req_territory is None:
+                    # User asked for plain "es" â€” accept all es-* variants
+                    return True
+                # User asked for specific territory â€” only accept exact match
+                # or tracks with no territory tag at all
+                return track_territory is None or track_territory == req_territory
+
+            tracks.subtitles = [
+                x for x in tracks.subtitles
+                if _sub_matches(x)
+                or (x.is_original_lang and has_orig
+                    and str(x.language).split("-")[0].lower() in req_langs)
+            ]
         
-        # Filter by CDN (keep only vod-ak CDN for consistency)
-        filtered_tracks = Tracks([
-            x for x in tracks if "vod-ak" in x.url
-        ])
+        # Filter by CDN (keep only vod-ak CDN for consistency).
+        # Apply per track type to preserve the subtitle language filtering above.
+        filtered_tracks = Tracks()
+        filtered_tracks.videos = [x for x in tracks.videos if "vod-ak" in x.url]
+        filtered_tracks.audios = [x for x in tracks.audios if "vod-ak" in x.url]
+        # Subtitles are already language-filtered above â€” only apply CDN filter,
+        # do NOT re-add tracks that were excluded by the language filter.
+        filtered_tracks.subtitles = [x for x in tracks.subtitles if "vod-ak" in x.url]
         
         return filtered_tracks
 
@@ -326,6 +618,7 @@ class AppleTVPlus(BaseService):
             if not streaming_keys:
                 raise ValueError("No streaming keys in license response")
             
+            # Get license data
             license_data = streaming_keys[0].get("license")
             if not license_data:
                 raise ValueError("No license data in streaming key")
@@ -341,37 +634,70 @@ class AppleTVPlus(BaseService):
                 except:
                     self.log.error(f"Raw error: {e.response.text}")
             raise
-
+  
     def _build_license_request(self, challenge: bytes, track) -> Dict:
-        """Build license request based on CDM type."""
-        if self.cdm.device.type == LocalDevice.Types.PLAYREADY:
+        """Build license request based on CDM type with updated URI format."""
+        
+        # Get w parameter from manifest
+        w_param = self.watermark_param or ""
+        
+        _is_playready = (hasattr(self.cdm, '__class__') and 'PlayReady' in self.cdm.__class__.__name__) or \
+                        (hasattr(self.cdm, 'device') and hasattr(self.cdm.device, 'type') and 
+                         self.cdm.device.type == LocalDevice.Types.PLAYREADY)
+        if _is_playready:
             key_system = "com.microsoft.playready"
             
-            uri_parts = ["data:text/plain"]
+            # Handle PlayReady PSSH
+            if hasattr(track, 'pr_pssh'):
+                if isinstance(track.pr_pssh, str):
+                    pssh_bytes = base64.b64decode(track.pr_pssh)
+                else:
+                    pssh_bytes = track.pr_pssh
+            else:
+                pssh_bytes = b''
             
-            if self.watermarktoken:
-                uri_parts.append(f"watermarkingToken={self.watermarktoken}")
+            pssh_b64 = base64.b64encode(pssh_bytes).decode('utf-8')
             
-            uri_parts.append("charset=UTF-16")
-            uri_parts.append(f"base64,{track.pr_pssh}")
-            uri = ";".join(uri_parts)
+            # Build URI with w parameter
+            if w_param:
+                uri = f"data:text/plain;w={w_param};charset=UTF-16;base64,{pssh_b64}"
+            else:
+                uri = f"data:text/plain;charset=UTF-16;base64,{pssh_b64}"
             
             challenge_b64 = base64.b64encode(challenge).decode('utf-8')
-        else:
+            key_id = 2
+            
+        else:  # Widevine
             key_system = "com.widevine.alpha"
             pssh_box = Box.build(track.pssh) if hasattr(track, 'pssh') else b''
-            uri = f"data:text/plain;base64,{base64.b64encode(pssh_box).decode()}"
+            pssh_b64 = base64.b64encode(pssh_box).decode()
+            
+            # Build URI with w parameter
+            if w_param:
+                uri = f"data:text/plain;w={w_param};base64,{pssh_b64}"
+            else:
+                uri = f"data:text/plain;base64,{pssh_b64}"
+            
             challenge_b64 = base64.b64encode(challenge).decode()
+            key_id = 2
         
+        # Get adamId and svcId
+        adam_id = ""
+        svc_id = ""
+        if self.extra_server_parameters:
+            adam_id = self.extra_server_parameters.get('adamId', '')
+            svc_id = self.extra_server_parameters.get('svcId', '')
+        
+        # Build license request
         streaming_keys = {
             "challenge": challenge_b64,
             "key-system": key_system,
             "uri": uri,
-            "id": 0 if key_system == "com.microsoft.playready" else 1,
-            "lease-action": 'start',
-            "adamId": self.extra_server_parameters.get('adamId', ''),
+            "id": key_id,
+            "lease-action": "start",
+            "adamId": adam_id,
             "isExternal": True,
-            "svcId": self.extra_server_parameters.get('svcId', ''),
+            "svcId": svc_id,
         }
         
         if self.extra_server_parameters:
@@ -384,173 +710,6 @@ class AppleTVPlus(BaseService):
             }
         }
 
-    def _set_storefront(self):
-        """Set storefront based on cookies."""
-        try:
-            # Obtener todas las cookies itua
-            itu_cookies = []
-            for cookie in self.session.cookies:
-                if cookie.name == "itua":
-                    itu_cookies.append({
-                        'value': cookie.value,
-                        'domain': cookie.domain,
-                        'path': cookie.path,
-                        'expires': cookie.expires
-                    })
-            
-            if not itu_cookies:
-                raise ValueError("Missing 'itua' cookie")
-            
-            # Log de las cookies encontradas
-            self.log.debug(f"Found {len(itu_cookies)} 'itua' cookies:")
-            for i, cookie in enumerate(itu_cookies, 1):
-                self.log.debug(f"  {i}. Value: {cookie['value']}, Domain: {cookie['domain']}")
-            
-            # Estrategia para elegir la cookie correcta:
-            # 1. Priorizar cookies de tv.apple.com
-            # 2. Priorizar cookies más recientes (mayor expiry)
-            tv_cookies = [c for c in itu_cookies if 'tv.apple.com' in c['domain']]
-            
-            if tv_cookies:
-                # Usar la cookie de tv.apple.com con expiry más lejano (más reciente)
-                selected_cookie = max(tv_cookies, key=lambda x: x['expires'] or 0)
-            else:
-                # Usar la cookie con expiry más lejano
-                selected_cookie = max(itu_cookies, key=lambda x: x['expires'] or 0)
-            
-            itu_cookie_value = selected_cookie['value']
-            self.log.info(f"Selected 'itua' cookie from {selected_cookie['domain']}")
-            
-            # Obtener mapeo de storefront
-            try:
-                response = requests.get(
-                    self.config["storefront_mapping_url"],
-                    timeout=10
-                )
-                response.raise_for_status()
-                mappings = response.json()
-                
-                # Buscar storefront
-                for mapping in mappings:
-                    if mapping.get('code') == itu_cookie_value:
-                        self.storefront = mapping.get('storefrontId')
-                        break
-                
-                if not self.storefront:
-                    # Intentar con las primeras 2 letras (código de país)
-                    country_code = itu_cookie_value[:2].upper()
-                    for mapping in mappings:
-                        if mapping.get('code', '').upper() == country_code:
-                            self.storefront = mapping.get('storefrontId')
-                            break
-                    
-                    if not self.storefront:
-                        raise ValueError(f"Storefront not found for country code: {itu_cookie_value}")
-                
-                self.log.info(f"Using storefront: {self.storefront}")
-                
-            except requests.RequestException as e:
-                self.log.error(f"Failed to fetch storefront mapping: {e}")
-                # Fallback a storefront por defecto basado en el dominio
-                self._set_fallback_storefront(itu_cookie_value)
-                
-        except Exception as e:
-            self.log.error(f"Error setting storefront: {e}")
-            raise
-
-    def _set_fallback_storefront(self, country_code):
-        """Set fallback storefront based on country code."""
-        # Mapeo común de códigos de país a storefronts
-        common_storefronts = {
-            'US': '143441',
-            'GB': '143444',
-            'DE': '143443',
-            'FR': '143442',
-            'CA': '143455',
-            'AU': '143460',
-            'JP': '143462',
-            'BR': '143503',
-            'MX': '143468',
-            'ES': '143454',
-        }
-        
-        # Intentar con las primeras 2 letras
-        short_code = country_code[:2].upper()
-        
-        if short_code in common_storefronts:
-            self.storefront = common_storefronts[short_code]
-            self.log.warning(f"Using fallback storefront {self.storefront} for {short_code}")
-        else:
-            # Fallback a US
-            self.storefront = '143441'
-            self.log.warning(f"Using default US storefront: {self.storefront}")
-
-    def _set_environment_config(self):
-        """Get environment configuration from Apple TV+ page."""
-        try:
-            response = self.session.get(self.config["endpoints"]["environment"])
-            response.raise_for_status()
-            
-            # Parse serialized server data
-            script_pattern = r'<script[^>]*id=["\']serialized-server-data["\'][^>]*>(.*?)</script>'
-            match = re.search(script_pattern, response.text, re.DOTALL)
-            
-            if match:
-                script_content = match.group(1).strip()
-                data = json.loads(script_content)
-                
-                if (data and len(data) > 0 and 
-                    'data' in data[0] and 
-                    'configureParams' in data[0]['data']):
-                    self.environment_config = data[0]['data']['configureParams']
-            
-            if not self.environment_config:
-                raise ValueError("Failed to extract environment configuration")
-                
-        except Exception as e:
-            self.log.error(f"Failed to get environment config: {e}")
-            raise
-
-    def _update_session_headers(self):
-        """Update session headers with authentication."""
-        if not self.environment_config or 'developerToken' not in self.environment_config:
-            raise ValueError("Missing developer token in environment config")
-        
-        # Manejar múltiples cookies media-user-token
-        media_cookies = []
-        for cookie in self.session.cookies:
-            if cookie.name == "media-user-token":
-                media_cookies.append({
-                    'value': cookie.value,
-                    'domain': cookie.domain,
-                    'path': cookie.path,
-                    'expires': cookie.expires
-                })
-        
-        if not media_cookies:
-            raise ValueError("Missing 'media-user-token' cookie")
-        
-        # Elegir la cookie correcta (similar estrategia que con itua)
-        tv_cookies = [c for c in media_cookies if 'tv.apple.com' in c['domain']]
-        
-        if tv_cookies:
-            # Usar la cookie de tv.apple.com con expiry más lejano
-            selected_cookie = max(tv_cookies, key=lambda x: x['expires'] or 0)
-        else:
-            # Usar la cookie con expiry más lejano
-            selected_cookie = max(media_cookies, key=lambda x: x['expires'] or 0)
-        
-        media_token = selected_cookie['value']
-        self.log.info(f"Selected 'media-user-token' cookie from {selected_cookie['domain']}")
-        
-        self.session.headers.update({
-            "User-Agent": self.config.get("user_agent", "AppleTV6,2/11.1"),
-            "Authorization": f"Bearer {self.environment_config['developerToken']}",
-            "media-user-token": media_token,
-            "x-apple-music-user-token": media_token,
-            **self.config.get("headers", {})
-        })
-
-    def _get_base_params(self) -> Dict:
+    def _get_base_params(self):
         """Get base parameters for API requests."""
         return self.config.get("params", {}).copy()

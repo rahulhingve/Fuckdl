@@ -1,0 +1,4 @@
+# TV5Unis (https://www.tv5unis.ca)
+# GraphQL API, HLS via Uplynk, no DRM
+
+api_url: https://api.tv5unis.ca/graphql

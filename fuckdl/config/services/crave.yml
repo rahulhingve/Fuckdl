@@ -1,17 +1,22 @@
 endpoints:
+  # Authentication endpoints
   login: 'https://account.bellmedia.ca/api/login/v2.1'
+  refresh: 'https://account.bellmedia.ca/api/login/v2.2'
+  
+  # Content endpoints
   content_packages: 'https://capi.9c9media.com/destinations/crave_atexace/platforms/desktop/contents/{title_id}/contentpackages'
   contents: 'https://capi.9c9media.com/destinations/crave_atexace/platforms/desktop/contents/{title_id}'
+  
+  # Playback endpoints
   manifest: 'https://stream.video.9c9media.com/meta/content/{title_id}/contentpackage/{package_id}/destination/1880/platform/87'
   srt: 'https://capi.9c9media.com/destinations/crave_atexace/platforms/desktop/playback/contents/{title_id}/contentpackages/{package_id}/manifest.srt'
-  license_wv: 'https://license.9c9media.ca/widevine'
-  license_pr: 'https://license.9c9media.ca/playready'
   meta: "https://stream.video.9c9media.com/meta/content/{content_id}/contentpackage/{package_id}/destination/{destination_code}/platform/{platform_code}"
-  refresh: 'https://account.bellmedia.ca/api/login/v2.2'
-
-
-headers:
-  authorization: 'Basic Y3JhdmUtYW5kcm9pZDpkZWZhdWx0'  ## Used on android phones to log in
   
-destination_code: "1880"
-platform_code: "1"
+  # DRM license endpoints
+  license_wv: 'https://license.9c9media.com/widevine'
+  license_pr: 'https://license.9c9media.com/playready'
+
+# API Headers
+headers:
+  # Android app authentication header (base64 encoded "crave-android:default")
+  authorization: 'Basic Y3JhdmUtYW5kcm9pZDpkZWZhdWx0'

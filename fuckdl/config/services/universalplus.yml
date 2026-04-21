@@ -1,0 +1,12 @@
+endpoints:
+  api_base: "https://api.app.universalplus.com"
+  player: "https://api.app.universalplus.com/page/player/{content_id}/profile/{profile_id}/latest"
+  details: "https://web.play.universalplus.com/details/{content_id}"
+
+headers:
+  Accept: "application/json, text/plain, */*"
+  Content-Type: "application/json"
+  Origin: "https://web.play.universalplus.com"
+  Referer: "https://web.play.universalplus.com/"
+  Accept-Version: "2.5.0"
+  User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/146.0.0.0"
